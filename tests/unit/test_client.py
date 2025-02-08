@@ -6,21 +6,24 @@
 import concurrent.futures
 from unittest import mock
 import os
+import threading
 import pytest
 
 from azure.core.credentials import AzureSasCredential
 import azure.core.exceptions
-from azure.core.pipeline.transport import HttpRequest, HttpResponse
-from azure.storage.blob import BlobClient, BlobProperties, StorageErrorCode
+from azure.core.pipeline.transport import HttpResponse
+from azure.storage.blob import BlobClient, BlobProperties, StorageErrorCode, BlobBlock
 from azure.storage.blob._generated._azure_blob_storage import AzureBlobStorage
 from azure.storage.blob._generated.operations import BlobOperations
 from azure.storage.blob._generated.models import ModifiedAccessConditions
 
 from azstoragetorch._client import AzStorageTorchBlobClient
+from tests.unit.utils import random_bytes
 
 MB = 1024 * 1024
 DEFAULT_PARTITION_DOWNLOAD_THRESHOLD = 16 * MB
 DEFAULT_PARTITION_SIZE = 16 * MB
+DEFAULT_BLOCK_SIZE = 32 * MB
 EXPECTED_RETRYABLE_READ_EXCEPTIONS = [
     azure.core.exceptions.IncompleteReadError,
     azure.core.exceptions.HttpResponseError,
@@ -81,8 +84,10 @@ def http_response_error(blob_url):
     return azure.core.exceptions.HttpResponseError(response=mock_http_response)
 
 
-def random_bytes(length):
-    return os.urandom(length)
+@pytest.fixture
+def mock_uuid4():
+    with mock.patch("uuid.uuid4") as mock_uuid:
+        yield mock_uuid
 
 
 def slice_bytes(content, range_value):
@@ -99,6 +104,32 @@ def to_bytes_iterator(content, chunk_size=64 * 1024, exception_to_raise=None):
 
 class NonRetryableException(Exception):
     pass
+
+
+class AtomicCounter:
+    def __init__(self):
+        self.value = 0
+        self._lock = threading.Lock()
+
+    def increment(self):
+        with self._lock:
+            self.value += 1
+            return self.value
+
+    def decrement(self):
+        with self._lock:
+            self.value -= 1
+            return self.value
+
+
+class SpySubmitExcecutor(concurrent.futures.ThreadPoolExecutor):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.counter = AtomicCounter()
+
+    def submit(self, fn, *args, **kwargs):
+        self.counter.increment()
+        return super().submit(fn, *args, **kwargs)
 
 
 class TestAzStorageTorchBlobClient:
@@ -118,6 +149,10 @@ class TestAzStorageTorchBlobClient:
             mock_generated_sdk_storage_client.blob.download.call_args_list
             == expected_download_calls
         )
+
+    def assert_stage_block_ids(self, stage_block_futures, expected_block_ids):
+        actual_block_ids = [future.result() for future in stage_block_futures]
+        assert actual_block_ids == expected_block_ids
 
     def test_from_blob_url(self, blob_url, mock_sdk_blob_client):
         credential = AzureSasCredential("sas")
@@ -401,4 +436,138 @@ class TestAzStorageTorchBlobClient:
             mock_generated_sdk_storage_client,
             ["0-9"],
             blob_properties.etag,
+        )
+
+    @pytest.mark.parametrize(
+        "bytes_like_type",
+        [
+            bytes,
+            bytearray,
+            memoryview,
+        ],
+    )
+    @pytest.mark.parametrize(
+        "content_length,expected_block_start_ends",
+        [
+            (1, [(0, 1)]),
+            (DEFAULT_BLOCK_SIZE - 1, [(0, DEFAULT_BLOCK_SIZE - 1)]),
+            (DEFAULT_BLOCK_SIZE, [(0, DEFAULT_BLOCK_SIZE)]),
+            (
+                DEFAULT_BLOCK_SIZE + 1,
+                [(0, DEFAULT_BLOCK_SIZE), (DEFAULT_BLOCK_SIZE, DEFAULT_BLOCK_SIZE + 1)],
+            ),
+            (
+                DEFAULT_BLOCK_SIZE * 2,
+                [(0, DEFAULT_BLOCK_SIZE), (DEFAULT_BLOCK_SIZE, DEFAULT_BLOCK_SIZE * 2)],
+            ),
+            (
+                DEFAULT_BLOCK_SIZE * 2 + 1,
+                [
+                    (0, DEFAULT_BLOCK_SIZE),
+                    (DEFAULT_BLOCK_SIZE, DEFAULT_BLOCK_SIZE * 2),
+                    (DEFAULT_BLOCK_SIZE * 2, DEFAULT_BLOCK_SIZE * 2 + 1),
+                ],
+            ),
+            (
+                DEFAULT_BLOCK_SIZE * 4,
+                [
+                    (0, DEFAULT_BLOCK_SIZE),
+                    (DEFAULT_BLOCK_SIZE, DEFAULT_BLOCK_SIZE * 2),
+                    (DEFAULT_BLOCK_SIZE * 2, DEFAULT_BLOCK_SIZE * 3),
+                    (DEFAULT_BLOCK_SIZE * 3, DEFAULT_BLOCK_SIZE * 4),
+                ],
+            ),
+        ],
+    )
+    def test_stage_blocks(
+        self,
+        bytes_like_type,
+        content_length,
+        expected_block_start_ends,
+        azstoragetorch_blob_client,
+        mock_sdk_blob_client,
+        mock_uuid4,
+    ):
+        expected_block_ids = [str(i) for i in range(len(expected_block_start_ends))]
+        mock_uuid4.side_effect = expected_block_ids
+        content = bytes_like_type(random_bytes(content_length))
+        expected_stage_block_calls = [
+            mock.call(str(i), content[start:end])
+            for i, (start, end) in enumerate(expected_block_start_ends)
+        ]
+        stage_block_futures = azstoragetorch_blob_client.stage_blocks(content)
+        self.assert_stage_block_ids(stage_block_futures, expected_block_ids)
+        assert (
+            mock_sdk_blob_client.stage_block.call_args_list
+            == expected_stage_block_calls
+        )
+        assert mock_uuid4.call_count == len(expected_block_start_ends)
+
+    def test_stage_blocks_returns_error_in_future(
+        self, azstoragetorch_blob_client, mock_sdk_blob_client
+    ):
+        mock_sdk_blob_client.stage_block.side_effect = azure.core.exceptions.AzureError(
+            "message"
+        )
+        stage_block_futures = azstoragetorch_blob_client.stage_blocks(random_bytes(8))
+        with pytest.raises(azure.core.exceptions.AzureError):
+            stage_block_futures[0].result()
+
+    @pytest.mark.parametrize(
+        "empty_content",
+        [
+            b"",
+            bytearray(),
+            memoryview(b""),
+            memoryview(bytearray()),
+        ],
+    )
+    def test_stage_blocks_raises_on_empty_data(
+        self, empty_content, azstoragetorch_blob_client
+    ):
+        with pytest.raises(ValueError, match="must not be empty"):
+            azstoragetorch_blob_client.stage_blocks(empty_content)
+
+    def test_stage_blocks_bounds_submitted_and_in_progress_futures(
+        self, mock_sdk_blob_client
+    ):
+        # To test the in-flight request limit, we flood the client with stage block requests and update a counter
+        # as part of the Executor.submit() and stage_block() client call to ensure that th number of queued and
+        # in-progress futures is never greater than the specified limit.
+        max_in_flight_requests = 5
+        spy_submit_executor = SpySubmitExcecutor(max_in_flight_requests)
+        client = AzStorageTorchBlobClient(
+            mock_sdk_blob_client, spy_submit_executor, max_in_flight_requests
+        )
+
+        in_flight_counts = []
+
+        def stage_block_side_effect(*args):
+            in_flight_counts.append(spy_submit_executor.counter.decrement())
+
+        mock_sdk_blob_client.stage_block.side_effect = stage_block_side_effect
+
+        content = random_bytes(10)
+        for _ in range(2000):
+            client.stage_blocks(content)
+        client.close()
+
+        assert spy_submit_executor.counter.value == 0
+        assert max(in_flight_counts) <= max_in_flight_requests
+
+    @pytest.mark.parametrize(
+        "block_list",
+        [
+            [],
+            ["block-1"],
+            ["block-1", "block-2"],
+        ],
+    )
+    def test_commit_block_list(
+        self, block_list, azstoragetorch_blob_client, mock_sdk_blob_client
+    ):
+        azstoragetorch_blob_client.commit_block_list(block_list)
+        expected_blob_blocks = [BlobBlock(block_id) for block_id in block_list]
+        mock_sdk_blob_client.commit_block_list.assert_called_once_with(
+            expected_blob_blocks
         )

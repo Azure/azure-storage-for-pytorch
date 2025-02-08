@@ -9,9 +9,12 @@ import functools
 import io
 import logging
 import math
+import os
 import random
+import threading
 import time
-from typing import Optional, List, Tuple, Iterator, Union
+import uuid
+from typing import Optional, List, Tuple, Iterator, Union, Type
 
 from azure.core.credentials import (
     AzureSasCredential,
@@ -31,6 +34,12 @@ SDK_CREDENTIAL_TYPE = Optional[
         TokenCredential,
     ]
 ]
+SUPPORTED_WRITE_BYTES_LIKE_TYPE = Union[bytes, bytearray, memoryview]
+try:
+    STAGE_BLOCK_FUTURE_TYPE = concurrent.futures.Future[str]
+except TypeError:
+    # Python <3.9 does not support generic typing for futures
+    STAGE_BLOCK_FUTURE_TYPE = concurrent.futures.Future
 
 
 class AzStorageTorchBlobClient:
@@ -38,6 +47,7 @@ class AzStorageTorchBlobClient:
     _PARTITIONED_DOWNLOAD_THRESHOLD = 16 * 1024 * 1024
     _PARTITION_SIZE = 16 * 1024 * 1024
     _NUM_DOWNLOAD_ATTEMPTS = 3
+    _STAGE_BLOCK_SIZE = 32 * 1024 * 1024
     _RETRYABLE_READ_EXCEPTIONS = (
         azure.core.exceptions.IncompleteReadError,
         azure.core.exceptions.HttpResponseError,
@@ -48,12 +58,21 @@ class AzStorageTorchBlobClient:
         self,
         sdk_blob_client: azure.storage.blob.BlobClient,
         executor: Optional[concurrent.futures.Executor] = None,
+        max_in_flight_requests: Optional[int] = None,
     ):
         self._sdk_blob_client = sdk_blob_client
         self._generated_sdk_storage_client = self._sdk_blob_client._client
+        if max_in_flight_requests is None:
+            max_in_flight_requests = self._get_max_in_flight_requests()
         if executor is None:
-            executor = concurrent.futures.ThreadPoolExecutor()
+            executor = concurrent.futures.ThreadPoolExecutor(max_in_flight_requests)
         self._executor = executor
+        # The standard thread pool executor does not bound the number of tasks submitted to it.
+        # This semaphore introduces bound so that the number of submitted, in-progress
+        # futures are not greater than the available workers. This is important for cases where we
+        # buffer data into memory for uploads as is prevents large amounts of memory from being
+        # submitted to the executor when there are no workers available to upload it.
+        self._max_in_flight_semaphore = threading.Semaphore(max_in_flight_requests)
 
     @classmethod
     def from_blob_url(
@@ -76,8 +95,37 @@ class AzStorageTorchBlobClient:
         else:
             return self._partitioned_download(offset, length)
 
+    def stage_blocks(
+        self, data: SUPPORTED_WRITE_BYTES_LIKE_TYPE
+    ) -> List[STAGE_BLOCK_FUTURE_TYPE]:
+        if not data:
+            raise ValueError("Data must not be empty.")
+        stage_block_partitions = self._get_stage_block_partitions(data)
+        futures = []
+        for pos, length in stage_block_partitions:
+            self._max_in_flight_semaphore.acquire()
+            future = self._executor.submit(self._stage_block, data[pos : pos + length])
+            future.add_done_callback(self._release_in_flight_semaphore)
+            futures.append(future)
+        return futures
+
+    def commit_block_list(self, block_ids: List[str]) -> None:
+        blob_blocks = [azure.storage.blob.BlobBlock(block_id) for block_id in block_ids]
+        self._sdk_blob_client.commit_block_list(blob_blocks)
+
     def close(self) -> None:
         self._executor.shutdown()
+
+    def _get_max_in_flight_requests(self) -> int:
+        # Ideally we would just match this value to the max workers of the executor. However
+        # the executor class does not publicly expose its max worker count. So, instead we copy
+        # the max worker calculation from the executor class and inject it into both the executor
+        # and semaphore
+        #
+        # Note: Once we support Python 3.13, the default calculation for max workers for the executor
+        # uses os.process_cpu_count() instead. We should make sure to update the value here to match
+        # that as well for Python 3.13 environments.
+        return min(32, (os.cpu_count() or 1) + 4)
 
     @functools.cached_property
     def _blob_properties(self) -> azure.storage.blob.BlobProperties:
@@ -93,21 +141,25 @@ class AzStorageTorchBlobClient:
 
     def _partitioned_download(self, offset: int, length: int) -> bytes:
         futures = []
-        for partition in self._get_partitioned_reads(offset, length):
+        for read_partition in self._get_partitions(
+            offset, length, self._PARTITION_SIZE
+        ):
             futures.append(
-                self._executor.submit(self._download_with_retries, *partition)
+                self._executor.submit(self._download_with_retries, *read_partition)
             )
         return b"".join(f.result() for f in futures)
 
-    def _get_partitioned_reads(self, offset: int, length: int) -> List[Tuple[int, int]]:
+    def _get_partitions(
+        self, offset: int, length: int, partition_size: int
+    ) -> List[Tuple[int, int]]:
         end = offset + length
-        num_partitions = math.ceil(length / self._PARTITION_SIZE)
+        num_partitions = math.ceil(length / partition_size)
         partitions = []
         for i in range(num_partitions):
-            start = offset + i * self._PARTITION_SIZE
+            start = offset + i * partition_size
             if start >= end:
                 break
-            size = min(self._PARTITION_SIZE, end - start)
+            size = min(partition_size, end - start)
             partitions.append((start, size))
         return partitions
 
@@ -162,3 +214,16 @@ class AzStorageTorchBlobClient:
         for chunk in stream:
             content.write(chunk)
         return content.getvalue()
+
+    def _get_stage_block_partitions(
+        self, data: SUPPORTED_WRITE_BYTES_LIKE_TYPE
+    ) -> List[Tuple[int, int]]:
+        return self._get_partitions(0, len(data), self._STAGE_BLOCK_SIZE)
+
+    def _stage_block(self, data: SUPPORTED_WRITE_BYTES_LIKE_TYPE) -> str:
+        block_id = str(uuid.uuid4())
+        self._sdk_blob_client.stage_block(block_id, data)
+        return block_id
+
+    def _release_in_flight_semaphore(self, _: STAGE_BLOCK_FUTURE_TYPE) -> None:
+        self._max_in_flight_semaphore.release()

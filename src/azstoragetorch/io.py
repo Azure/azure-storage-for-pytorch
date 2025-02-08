@@ -4,9 +4,10 @@
 # license information.
 # --------------------------------------------------------------------------
 
+import concurrent.futures
 import io
 import os
-from typing import get_args, Optional, Union, Literal, Type
+from typing import get_args, Optional, Union, Literal, Type, List
 import urllib.parse
 
 from azure.identity import DefaultAzureCredential
@@ -16,16 +17,22 @@ from azure.core.credentials import (
 )
 
 from azstoragetorch._client import SDK_CREDENTIAL_TYPE as _SDK_CREDENTIAL_TYPE
+from azstoragetorch._client import (
+    SUPPORTED_WRITE_BYTES_LIKE_TYPE as _SUPPORTED_WRITE_TYPES,
+)
+from azstoragetorch._client import STAGE_BLOCK_FUTURE_TYPE as _STAGE_BLOCK_FUTURE_TYPE
 from azstoragetorch._client import AzStorageTorchBlobClient as _AzStorageTorchBlobClient
+from azstoragetorch.exceptions import FatalBlobIOWriteError
 
 
-_SUPPORTED_MODES = Literal["rb"]
+_SUPPORTED_MODES = Literal["rb", "wb"]
 _AZSTORAGETORCH_CREDENTIAL_TYPE = Union[_SDK_CREDENTIAL_TYPE, Literal[False]]
 
 
 class BlobIO(io.IOBase):
     _READLINE_PREFETCH_SIZE = 4 * 1024 * 1024
     _READLINE_TERMINATOR = b"\n"
+    _WRITE_BUFFER_SIZE = 32 * 1024 * 1024
 
     def __init__(
         self,
@@ -51,10 +58,24 @@ class BlobIO(io.IOBase):
         # TODO: Consider using a bytearray and/or memoryview for readline buffer. There may be performance
         #  gains in regards to reducing the number of copies performed when consuming from buffer.
         self._readline_buffer = b""
+        self._write_buffer = bytearray()
+        self._all_stage_block_futures: List[_STAGE_BLOCK_FUTURE_TYPE] = []
+        self._in_progress_stage_block_futures: List[_STAGE_BLOCK_FUTURE_TYPE] = []
+        self._stage_block_exception: Optional[BaseException] = None
 
     def close(self) -> None:
-        self._close_client()
-        self._closed = True
+        if self.closed:
+            return
+        try:
+            # Any errors that occur while flushing or committing the block list are considered non-recoverable
+            # when using the BlobIO interface. So if an error occurs, we still close the BlobIO to further indicate
+            # that a new BlobIO instance will be needed and also avoid possibly calling the flush/commit logic again
+            # during garbage collection.
+            if self.writable():
+                self._commit_blob()
+        finally:
+            self._close_client()
+            self._closed = True
 
     @property
     def closed(self) -> bool:
@@ -65,17 +86,19 @@ class BlobIO(io.IOBase):
 
     def flush(self) -> None:
         self._validate_not_closed()
+        self._flush()
 
     def read(self, size: Optional[int] = -1, /) -> bytes:
         if size is not None:
             self._validate_is_integer("size", size)
             self._validate_min("size", size, -1)
+        self._validate_readable()
         self._validate_not_closed()
         self._invalidate_readline_buffer()
         return self._read(size)
 
     def readable(self) -> bool:
-        if self._mode == "rb":
+        if self._is_read_mode():
             self._validate_not_closed()
             return True
         return False
@@ -83,12 +106,14 @@ class BlobIO(io.IOBase):
     def readline(self, size: Optional[int] = -1, /) -> bytes:
         if size is not None:
             self._validate_is_integer("size", size)
+        self._validate_readable()
         self._validate_not_closed()
         return self._readline(size)
 
     def seek(self, offset: int, whence: int = os.SEEK_SET, /) -> int:
         self._validate_is_integer("offset", offset)
         self._validate_is_integer("whence", whence)
+        self._validate_seekable()
         self._validate_not_closed()
         self._invalidate_readline_buffer()
         return self._seek(offset, whence)
@@ -100,10 +125,16 @@ class BlobIO(io.IOBase):
         self._validate_not_closed()
         return self._position
 
-    def write(self, b: Union[bytes, bytearray], /) -> int:
-        raise NotImplementedError("write")
+    def write(self, b: _SUPPORTED_WRITE_TYPES, /) -> int:
+        self._validate_supported_write_type(b)
+        self._validate_writable()
+        self._validate_not_closed()
+        return self._write(b)
 
     def writable(self) -> bool:
+        if self._is_write_mode():
+            self._validate_not_closed()
+            return True
         return False
 
     def _validate_mode(self, mode: str) -> None:
@@ -119,6 +150,30 @@ class BlobIO(io.IOBase):
             raise ValueError(
                 f"{param_name} must be greater than or equal to {min_value}"
             )
+
+    def _validate_supported_write_type(self, b: _SUPPORTED_WRITE_TYPES) -> None:
+        if not isinstance(b, get_args(_SUPPORTED_WRITE_TYPES)):
+            raise TypeError(
+                f"Unsupported type for write: {type(b)}. Supported types: {get_args(_SUPPORTED_WRITE_TYPES)}"
+            )
+
+    def _validate_readable(self) -> None:
+        if not self._is_read_mode():
+            raise io.UnsupportedOperation("read")
+
+    def _validate_seekable(self) -> None:
+        if not self._is_read_mode():
+            raise io.UnsupportedOperation("seek")
+
+    def _validate_writable(self) -> None:
+        if not self._is_write_mode():
+            raise io.UnsupportedOperation("write")
+
+    def _is_read_mode(self) -> bool:
+        return self._mode == "rb"
+
+    def _is_write_mode(self) -> bool:
+        return self._mode == "wb"
 
     def _validate_not_closed(self) -> None:
         if self.closed:
@@ -229,9 +284,74 @@ class BlobIO(io.IOBase):
             return self._client.get_blob_size() + offset
         raise ValueError(f"Unsupported whence: {whence}")
 
+    def _flush(self) -> None:
+        self._check_for_stage_block_exceptions(wait=False)
+        self._flush_write_buffer()
+        self._check_for_stage_block_exceptions(wait=True)
+
+    def _flush_write_buffer(self) -> None:
+        if self._write_buffer:
+            futures = self._client.stage_blocks(memoryview(self._write_buffer))
+            self._all_stage_block_futures.extend(futures)
+            self._in_progress_stage_block_futures.extend(futures)
+            self._write_buffer = bytearray()
+
+    def _write(self, b: _SUPPORTED_WRITE_TYPES) -> int:
+        self._check_for_stage_block_exceptions(wait=False)
+        write_length = len(b)
+        self._write_buffer.extend(b)
+        if len(self._write_buffer) >= self._WRITE_BUFFER_SIZE:
+            self._flush_write_buffer()
+        self._position += write_length
+        return write_length
+
+    def _commit_blob(self) -> None:
+        self._flush()
+        block_ids = [f.result() for f in self._all_stage_block_futures]
+        self._raise_if_duplicate_block_ids(block_ids)
+        self._client.commit_block_list(block_ids)
+
+    def _raise_if_duplicate_block_ids(self, block_ids: str) -> None:
+        # An additional safety measure to ensure we never reuse block IDs within a BlobIO instance. This
+        # should not be an issue with UUID4 for block IDs, but that may not always be the case if
+        # block ID generation changes in the future.
+        if len(block_ids) != len(set(block_ids)):
+            raise RuntimeError(
+                "Unexpected duplicate block IDs detected. Not committing blob."
+            )
+
+    def _check_for_stage_block_exceptions(self, wait: bool = True) -> None:
+        # Before doing any additional processing, raise if an exception has already
+        # been processed especially if it is going to require us to wait for all
+        # in-progress futures to complete.
+        self._raise_if_fatal_write_error()
+        self._process_stage_block_futures_for_errors(wait)
+
+    def _process_stage_block_futures_for_errors(self, wait: bool) -> None:
+        if wait:
+            concurrent.futures.wait(
+                self._in_progress_stage_block_futures,
+                return_when=concurrent.futures.FIRST_EXCEPTION,
+            )
+        futures_still_in_progress = []
+        for future in self._in_progress_stage_block_futures:
+            if future.done():
+                if (
+                    self._stage_block_exception is None
+                    and future.exception() is not None
+                ):
+                    self._stage_block_exception = future.exception()
+            else:
+                futures_still_in_progress.append(future)
+        self._in_progress_stage_block_futures = futures_still_in_progress
+        self._raise_if_fatal_write_error()
+
+    def _raise_if_fatal_write_error(self) -> None:
+        if self._stage_block_exception is not None:
+            raise FatalBlobIOWriteError(self._stage_block_exception)
+
     def _close_client(self) -> None:
-        if not self._closed:
-            self._client.close()
+        self._client.close()
 
     def _is_at_end_of_blob(self) -> bool:
         return self._position >= self._client.get_blob_size()
