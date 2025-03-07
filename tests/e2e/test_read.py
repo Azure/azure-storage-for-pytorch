@@ -58,10 +58,18 @@ def blob_io(blob_url):
 
 
 def random_resource_name(name_length=8):
-    return "".join(random.choices(string.ascii_lowercase + string.digits, k=name_length))
+    return "".join(
+        random.choices(string.ascii_lowercase + string.digits, k=name_length)
+    )
 
 
 class TestRead:
     def test_reads_all_data(self, blob_io, sample_data):
         with blob_io as f:
             assert f.read() == sample_data
+
+    @pytest.mark.parametrize("n", [1, 2, 4, 5, 9])
+    def test_read_n_bytes(self, blob_io, sample_data, n):
+        with blob_io as f:
+            for i in range(0, 10, n):
+                assert f.read(n) == sample_data[i : i + n]
