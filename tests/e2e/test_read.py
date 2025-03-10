@@ -13,6 +13,9 @@ from azure.identity import DefaultAzureCredential
 from azure.storage.blob import BlobServiceClient
 
 
+_PARTITIONED_DOWNLOAD_THRESHOLD = 16 * 1024 * 1024
+
+
 @pytest.fixture
 def account_url():
     account_name = os.environ.get("AZSTORAGETORCH_STORAGE_ACCOUNT_NAME")
@@ -24,8 +27,8 @@ def account_url():
 
 
 @pytest.fixture
-def sample_data():
-    return os.urandom(10)
+def sample_data(request):
+    return os.urandom(request.param)
 
 
 @pytest.fixture
@@ -58,10 +61,49 @@ def blob_io(blob_url):
 
 
 def random_resource_name(name_length=8):
-    return "".join(random.choices(string.ascii_lowercase + string.digits, k=name_length))
+    return "".join(
+        random.choices(string.ascii_lowercase + string.digits, k=name_length)
+    )
 
 
 class TestRead:
+    @pytest.mark.parametrize("sample_data", [20], indirect=True)
     def test_reads_all_data(self, blob_io, sample_data):
+        with blob_io as f:
+            assert f.read() == sample_data
+
+    @pytest.mark.parametrize("n", [1, 2, 4, 5, 9])
+    @pytest.mark.parametrize("sample_data", [20], indirect=True)
+    def test_read_n_bytes(self, blob_io, sample_data, n):
+        with blob_io as f:
+            for i in range(0, 10, n):
+                assert f.read(n) == sample_data[i : i + n]
+
+    @pytest.mark.parametrize("n", [1, 2, 4, 5, 9])
+    @pytest.mark.parametrize("sample_data", [20], indirect=True)
+    def test_random_seeks_and_reads(self, blob_io, sample_data, n):
+        with blob_io as f:
+            f.seek(n)
+            assert f.read() == sample_data[n:]
+
+    @pytest.mark.parametrize("sample_data", [20], indirect=True)
+    def test_read_using_iter(self, blob_io, sample_data):
+        with blob_io as f:
+            data = b""
+            for i in iter(f):
+                data += i
+            assert data == sample_data
+
+    @pytest.mark.parametrize(
+        "sample_data",
+        [
+            20,
+            1000,
+            _PARTITIONED_DOWNLOAD_THRESHOLD,
+            _PARTITIONED_DOWNLOAD_THRESHOLD * 2,
+        ],
+        indirect=True,
+    )
+    def test_read_different_blob_sizes(self, blob_io, sample_data):
         with blob_io as f:
             assert f.read() == sample_data
