@@ -7,6 +7,7 @@
 import concurrent.futures
 import io
 import os
+import sys
 from typing import get_args, Optional, Union, Literal, Type, List
 import urllib.parse
 
@@ -23,11 +24,14 @@ from azstoragetorch._client import (
 from azstoragetorch._client import STAGE_BLOCK_FUTURE_TYPE as _STAGE_BLOCK_FUTURE_TYPE
 from azstoragetorch._client import AzStorageTorchBlobClient as _AzStorageTorchBlobClient
 from azstoragetorch.exceptions import FatalBlobIOWriteError
-
+import logging
 
 _SUPPORTED_MODES = Literal["rb", "wb"]
 _AZSTORAGETORCH_CREDENTIAL_TYPE = Union[_SDK_CREDENTIAL_TYPE, Literal[False]]
 
+_LOGGER = logging.getLogger(__name__)
+_LOGGER.setLevel(logging.DEBUG)
+_LOGGER.addHandler(logging.StreamHandler(stream=sys.stdout))
 
 class BlobIO(io.IOBase):
     _READLINE_PREFETCH_SIZE = 4 * 1024 * 1024
@@ -259,6 +263,7 @@ class BlobIO(io.IOBase):
         return True
 
     def _read(self, size: Optional[int]) -> bytes:
+        _LOGGER.debug("_read")
         if size == 0 or self._is_at_end_of_blob():
             return b""
         download_length = size
@@ -354,4 +359,7 @@ class BlobIO(io.IOBase):
         self._client.close()
 
     def _is_at_end_of_blob(self) -> bool:
+        _LOGGER.debug("is at end of blob: %s", hasattr(self._client, "_blob_properties"))
+        if not hasattr(self._client, "_blob_properties"):
+            return False
         return self._position >= self._client.get_blob_size()

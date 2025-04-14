@@ -11,6 +11,7 @@ import logging
 import math
 import os
 import random
+import sys
 import threading
 import time
 import uuid
@@ -28,6 +29,8 @@ from azstoragetorch._version import __version__
 
 
 _LOGGER = logging.getLogger(__name__)
+_LOGGER.setLevel(logging.DEBUG)
+_LOGGER.addHandler(logging.StreamHandler(stream=sys.stdout))
 
 SDK_CREDENTIAL_TYPE = Optional[
     Union[
@@ -88,6 +91,7 @@ class AzStorageTorchBlobClient:
         return self._blob_properties.size
 
     def download(self, offset: int = 0, length: Optional[int] = None) -> bytes:
+        _LOGGER.debug("download")
         length = self._update_download_length_from_blob_size(offset, length)
         if length < self._PARTITIONED_DOWNLOAD_THRESHOLD:
             return self._download_with_retries(offset, length)
@@ -130,6 +134,7 @@ class AzStorageTorchBlobClient:
 
     @functools.cached_property
     def _blob_properties(self) -> azure.storage.blob.BlobProperties:
+        _LOGGER.debug("Access blob properties")
         return self._sdk_blob_client.get_blob_properties()
 
     def _update_download_length_from_blob_size(
@@ -166,8 +171,25 @@ class AzStorageTorchBlobClient:
 
     def _download_with_retries(self, pos: int, length: int) -> bytes:
         attempt = 0
-        while self._attempts_remaining(attempt):
+        while self._attempts_remaining(attempt):    
+            _LOGGER.debug("downloading with retries")
             stream = self._get_download_stream(pos, length)
+
+            # _LOGGER.debug("stream: %s", dir(stream.response))
+            # _LOGGER.debug("properties: %s", stream.response.headers)
+
+            if not hasattr(self, "_blob_properties"):
+                _LOGGER.debug("trying to get blob properties from downloaded stream")
+                self._blob_properties = {
+                    "name": stream.response.headers.get("x-ms-blob-name"),
+                    "container": stream.response.headers.get("x-ms-container-name"),
+                    "size": stream.response.headers.get("Content-Length"),
+                    "etag": stream.response.headers.get("ETag"),
+                    "content_type": stream.response.headers.get("Content-Type"),
+                    "last_modified": stream.response.headers.get("Last-Modified"),
+                    "blob_type": stream.response.headers.get("x-ms-blob-type"),
+                }
+            
             try:
                 return self._read_stream(stream)
             except self._RETRYABLE_READ_EXCEPTIONS:
@@ -185,12 +207,19 @@ class AzStorageTorchBlobClient:
 
     def _get_download_stream(self, pos: int, length: int) -> Iterator[bytes]:
         try:
-            return self._generated_sdk_storage_client.blob.download(
-                range=f"bytes={pos}-{pos + length - 1}",
-                modified_access_conditions=azure.storage.blob._generated.models.ModifiedAccessConditions(
-                    if_match=self._blob_properties.etag
-                ),
-            )
+            if not hasattr(self, "_blob_properties"):
+                return self._generated_sdk_storage_client.blob.download(
+                    range=f"bytes={pos}-{pos + length - 1}",
+                    modified_access_conditions=None
+                )
+            else:
+                return self._generated_sdk_storage_client.blob.download(
+                    range=f"bytes={pos}-{pos + length - 1}",
+                    modified_access_conditions=azure.storage.blob._generated.models.ModifiedAccessConditions(
+                        if_match=self._blob_properties.etag
+                    ), 
+                )
+                
         except azure.core.exceptions.HttpResponseError as e:
             # TODO: This is so that we properly map exceptions from the generated client to the correct
             # exception class and error code. In the future, prior to a GA, we should consider pulling
