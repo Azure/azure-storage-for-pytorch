@@ -17,6 +17,7 @@ from azure.core.credentials import (
     TokenCredential,
 )
 
+import azure.storage.blob
 from azstoragetorch._client import SDK_CREDENTIAL_TYPE as _SDK_CREDENTIAL_TYPE
 from azstoragetorch._client import (
     SUPPORTED_WRITE_BYTES_LIKE_TYPE as _SUPPORTED_WRITE_TYPES,
@@ -221,6 +222,7 @@ class BlobIO(io.IOBase):
 
     def _readline(self, size: Optional[int]) -> bytes:
         consumed = b""
+        self._set_blob_size_from_header()
         if size == 0 or self._is_at_end_of_blob():
             return consumed
 
@@ -262,8 +264,23 @@ class BlobIO(io.IOBase):
             return False
         return True
 
+    def _set_blob_size_from_header(self) -> int:
+        response = self._client._generated_sdk_storage_client.blob.download(
+            range=f"bytes={0}-{1}"
+        )
+        headers = response.response.headers
+        if not headers["Content-Range"]:
+            raise ValueError("Content-Range header not found in response headers")
+        blob_size = int(headers["Content-Range"].split("/")[1])
+        if blob_size <= 0:
+            raise ValueError("Blob size is not valid")
+        
+        self._client._blob_properties = azure.storage.blob.BlobProperties()
+        self._client._blob_properties.size = blob_size
+    
     def _read(self, size: Optional[int]) -> bytes:
         _LOGGER.debug("_read")
+        self._set_blob_size_from_header()
         if size == 0 or self._is_at_end_of_blob():
             return b""
         download_length = size
@@ -359,7 +376,4 @@ class BlobIO(io.IOBase):
         self._client.close()
 
     def _is_at_end_of_blob(self) -> bool:
-        _LOGGER.debug("is at end of blob: %s", hasattr(self._client, "_blob_properties"))
-        if not hasattr(self._client, "_blob_properties"):
-            return False
         return self._position >= self._client.get_blob_size()
