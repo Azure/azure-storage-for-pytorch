@@ -7,6 +7,7 @@
 import concurrent.futures
 import io
 import os
+import sys
 from typing import get_args, Optional, Union, Literal, Type, List
 import urllib.parse
 
@@ -16,6 +17,7 @@ from azure.core.credentials import (
     TokenCredential,
 )
 
+import azure.storage.blob
 from azstoragetorch._client import SDK_CREDENTIAL_TYPE as _SDK_CREDENTIAL_TYPE
 from azstoragetorch._client import (
     SUPPORTED_WRITE_BYTES_LIKE_TYPE as _SUPPORTED_WRITE_TYPES,
@@ -23,11 +25,14 @@ from azstoragetorch._client import (
 from azstoragetorch._client import STAGE_BLOCK_FUTURE_TYPE as _STAGE_BLOCK_FUTURE_TYPE
 from azstoragetorch._client import AzStorageTorchBlobClient as _AzStorageTorchBlobClient
 from azstoragetorch.exceptions import FatalBlobIOWriteError
-
+import logging
 
 _SUPPORTED_MODES = Literal["rb", "wb"]
 _AZSTORAGETORCH_CREDENTIAL_TYPE = Union[_SDK_CREDENTIAL_TYPE, Literal[False]]
 
+_LOGGER = logging.getLogger(__name__)
+_LOGGER.setLevel(logging.DEBUG)
+_LOGGER.addHandler(logging.StreamHandler(stream=sys.stdout))
 
 class BlobIO(io.IOBase):
     _READLINE_PREFETCH_SIZE = 4 * 1024 * 1024
@@ -62,6 +67,7 @@ class BlobIO(io.IOBase):
         self._all_stage_block_futures: List[_STAGE_BLOCK_FUTURE_TYPE] = []
         self._in_progress_stage_block_futures: List[_STAGE_BLOCK_FUTURE_TYPE] = []
         self._stage_block_exception: Optional[BaseException] = None
+        self._blob_properties_initialized = False
 
     def close(self) -> None:
         if self.closed:
@@ -217,6 +223,7 @@ class BlobIO(io.IOBase):
 
     def _readline(self, size: Optional[int]) -> bytes:
         consumed = b""
+        self._set_blob_size_from_header()
         if size == 0 or self._is_at_end_of_blob():
             return consumed
 
@@ -258,7 +265,28 @@ class BlobIO(io.IOBase):
             return False
         return True
 
+    def _set_blob_size_from_header(self) -> int:
+        response = self._client._generated_sdk_storage_client.blob.download(
+            range=f"bytes={0}-{1}"
+        )
+        headers = response.response.headers
+        if "Content-Range" not in headers:
+            raise ValueError("Content-Range header not found in response headers")
+        blob_size = int(headers["Content-Range"].split("/")[1])
+        if blob_size <= 0:
+            raise ValueError("Blob size is not valid")
+        
+        self._client._blob_properties = azure.storage.blob.BlobProperties()
+        self._client._blob_properties.size = blob_size
+        self._client._blob_properties.etag=headers.get("ETag")
+        self._blob_properties_initialized = True
+        return blob_size
+    
     def _read(self, size: Optional[int]) -> bytes:
+        _LOGGER.debug("_read")
+        if not self._blob_properties_initialized:
+            _LOGGER.debug("Blob properties not set, setting from header")
+            self._set_blob_size_from_header()
         if size == 0 or self._is_at_end_of_blob():
             return b""
         download_length = size
@@ -281,6 +309,8 @@ class BlobIO(io.IOBase):
         if whence == os.SEEK_CUR:
             return self._position + offset
         if whence == os.SEEK_END:
+            if not self._blob_properties_initialized:
+                return self._set_blob_size_from_header() + offset
             return self._client.get_blob_size() + offset
         raise ValueError(f"Unsupported whence: {whence}")
 

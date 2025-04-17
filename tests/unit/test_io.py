@@ -20,6 +20,9 @@ from azstoragetorch.exceptions import FatalBlobIOWriteError
 from azstoragetorch.io import BlobIO
 from azstoragetorch._client import AzStorageTorchBlobClient
 from tests.unit.utils import random_bytes
+from azure.storage.blob._generated.operations import BlobOperations
+from azure.storage.blob._generated._azure_blob_storage import AzureBlobStorage
+
 
 
 EXPECTED_DEFAULT_READLINE_PREFETCH_SIZE = 4 * 1024 * 1024
@@ -38,6 +41,14 @@ def mock_azstoragetorch_blob_client(blob_content, blob_length):
     mock_blob_client.get_blob_size.return_value = blob_length
     mock_blob_client.download.return_value = blob_content
     mock_blob_client.stage_blocks.return_value = []
+
+    mock_generated_sdk_client = mock.Mock(AzureBlobStorage)
+    mock_response = mock.Mock()
+    mock_response.response.headers = {"Content-Range": f"0-1/{blob_length}", "ETag": "mock_etag"}
+    mock_blob = mock.Mock(BlobOperations)
+    mock_blob.download.return_value = mock_response
+    mock_generated_sdk_client.blob = mock_blob
+    mock_blob_client._generated_sdk_storage_client = mock_generated_sdk_client
     return mock_blob_client
 
 
@@ -1042,3 +1053,46 @@ class TestBlobIO:
         writable_blob_io.flush()
         with pytest.raises(RuntimeError, match="duplicate block IDs"):
             writable_blob_io.close()
+
+    def test_set_blob_size_from_header(
+            self, mock_azstoragetorch_blob_client, blob_io, blob_length
+    ):
+        blob_io._client._blob_properties.assert_not_called()
+        assert blob_io._set_blob_size_from_header() == blob_length
+        mock_azstoragetorch_blob_client._generated_sdk_storage_client.blob.download.assert_called_once_with(
+            range="bytes=0-1"
+        )
+        assert blob_io._client._blob_properties.size == blob_length
+
+    def test_set_blob_size_from_header_multiple_reads(
+            self, mock_azstoragetorch_blob_client, blob_io, blob_length
+    ):
+        assert blob_io._blob_properties_initialized == False
+        blob_io.read(1)
+        assert blob_io._blob_properties_initialized == True
+        assert blob_io._client._blob_properties.size == blob_length
+        blob_io.read(2)
+        mock_azstoragetorch_blob_client._generated_sdk_storage_client.blob.download.assert_called_once_with(
+            range="bytes=0-1"
+        )        
+
+    def test_set_blob_size_from_header_with_seek(
+            self, mock_azstoragetorch_blob_client, blob_io, blob_length
+    ):
+        blob_io.seek(1)
+        blob_io.read()
+        assert blob_io._client._blob_properties.size == blob_length
+        mock_azstoragetorch_blob_client._generated_sdk_storage_client.blob.download.assert_called_once_with(
+            range="bytes=0-1"
+        )
+
+    def test_set_blob_size_from_header_raises_error(
+            self, mock_azstoragetorch_blob_client, blob_io
+    ):
+        mock_response = mock.Mock()
+        mock_response.response.headers = {"ETag": "mock_etag"}
+        mock_azstoragetorch_blob_client._generated_sdk_storage_client.blob.download.return_value = mock_response
+        with pytest.raises(ValueError, match="Content-Range header not found in response headers"):
+            blob_io._set_blob_size_from_header()
+
+    
