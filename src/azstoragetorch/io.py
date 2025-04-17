@@ -30,6 +30,10 @@ _AZSTORAGETORCH_CREDENTIAL_TYPE = Union[_SDK_CREDENTIAL_TYPE, Literal[False]]
 
 
 class BlobIO(io.IOBase):
+    """
+    BlobIO is a file-like object that provides an interface for reading and writing to Azure Blob Storage.
+    """
+
     _READLINE_PREFETCH_SIZE = 4 * 1024 * 1024
     _READLINE_TERMINATOR = b"\n"
     _WRITE_BUFFER_SIZE = 32 * 1024 * 1024
@@ -79,6 +83,9 @@ class BlobIO(io.IOBase):
 
     @property
     def closed(self) -> bool:
+        """
+        Return whether the IO object is closed.
+        """
         return self._closed
 
     def fileno(self) -> int:
@@ -89,6 +96,10 @@ class BlobIO(io.IOBase):
         self._flush()
 
     def read(self, size: Optional[int] = -1, /) -> bytes:
+        """
+        Read bytes from the blob.
+        """
+
         if size is not None:
             self._validate_is_integer("size", size)
             self._validate_min("size", size, -1)
@@ -98,12 +109,27 @@ class BlobIO(io.IOBase):
         return self._read(size)
 
     def readable(self) -> bool:
+        """
+        Return whether object was opened for reading.
+
+        If False, :meth:`read` will raise :exc:`OSError`.
+        """
+
         if self._is_read_mode():
             self._validate_not_closed()
             return True
         return False
 
     def readline(self, size: Optional[int] = -1, /) -> bytes:
+        """
+        Read and return a line from the stream.
+
+        If size is specified, at most size bytes will be read.
+
+        The line terminator is always b'n' for binary files; for text files, the newlines
+        argument to :func:`open` can be used to select the line terminator(s) recognized.
+        """
+
         if size is not None:
             self._validate_is_integer("size", size)
         self._validate_readable()
@@ -111,6 +137,15 @@ class BlobIO(io.IOBase):
         return self._readline(size)
 
     def seek(self, offset: int, whence: int = os.SEEK_SET, /) -> int:
+        """
+        Change the stream position to the given byte offset, interpreted relative to the position 
+        indicated by whence, and return the new absolute position. Values for whence are:
+        
+        - :attr:`os.SEEK_SET` or 0: start of the stream (the default); offset should be zero or positive
+        - :attr:`os.SEEK_CUR` or 1: current stream position; offset may be negative
+        - :attr:`os.SEEK_END` or 2: end of the stream; offset is usually negative
+        """
+        
         self._validate_is_integer("offset", offset)
         self._validate_is_integer("whence", whence)
         self._validate_seekable()
@@ -119,6 +154,12 @@ class BlobIO(io.IOBase):
         return self._seek(offset, whence)
 
     def seekable(self) -> bool:
+        """
+        Return whether object supports random access.
+
+        If False, :meth:`seek` and :meth:`tell` will raise :exc:`OSError`.
+        """
+
         return self.readable()
 
     def tell(self) -> int:
@@ -126,12 +167,22 @@ class BlobIO(io.IOBase):
         return self._position
 
     def write(self, b: _SUPPORTED_WRITE_TYPES, /) -> int:
+        """
+        Writes a bytes-like object to the blob and returns the number of bytes written.
+        """
+
         self._validate_supported_write_type(b)
         self._validate_writable()
         self._validate_not_closed()
         return self._write(b)
 
     def writable(self) -> bool:
+        """
+        Return whether object was opened for writing.
+
+        If False, :meth:`write` will raise :exc:`OSError`.
+        """
+
         if self._is_write_mode():
             self._validate_not_closed()
             return True

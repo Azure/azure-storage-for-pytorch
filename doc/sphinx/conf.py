@@ -23,3 +23,9 @@ language = 'Python'
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
 
 html_theme = 'furo'
+
+extensions = ['sphinx.ext.autodoc', 'sphinx.ext.intersphinx']
+
+intersphinx_mapping = {
+    'python': ('https://docs.python.org/3', None),
+}
