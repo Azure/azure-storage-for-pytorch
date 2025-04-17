@@ -67,6 +67,7 @@ class BlobIO(io.IOBase):
         self._all_stage_block_futures: List[_STAGE_BLOCK_FUTURE_TYPE] = []
         self._in_progress_stage_block_futures: List[_STAGE_BLOCK_FUTURE_TYPE] = []
         self._stage_block_exception: Optional[BaseException] = None
+        self._blob_properties_initialized = False
 
     def close(self) -> None:
         if self.closed:
@@ -269,7 +270,7 @@ class BlobIO(io.IOBase):
             range=f"bytes={0}-{1}"
         )
         headers = response.response.headers
-        if not headers["Content-Range"]:
+        if "Content-Range" not in headers:
             raise ValueError("Content-Range header not found in response headers")
         blob_size = int(headers["Content-Range"].split("/")[1])
         if blob_size <= 0:
@@ -277,10 +278,15 @@ class BlobIO(io.IOBase):
         
         self._client._blob_properties = azure.storage.blob.BlobProperties()
         self._client._blob_properties.size = blob_size
+        self._client._blob_properties.etag=headers.get("ETag")
+        self._blob_properties_initialized = True
+        return blob_size
     
     def _read(self, size: Optional[int]) -> bytes:
         _LOGGER.debug("_read")
-        self._set_blob_size_from_header()
+        if not self._blob_properties_initialized:
+            _LOGGER.debug("Blob properties not set, setting from header")
+            self._set_blob_size_from_header()
         if size == 0 or self._is_at_end_of_blob():
             return b""
         download_length = size
@@ -303,6 +309,8 @@ class BlobIO(io.IOBase):
         if whence == os.SEEK_CUR:
             return self._position + offset
         if whence == os.SEEK_END:
+            if not self._blob_properties_initialized:
+                return self._set_blob_size_from_header() + offset
             return self._client.get_blob_size() + offset
         raise ValueError(f"Unsupported whence: {whence}")
 

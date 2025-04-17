@@ -191,24 +191,12 @@ class AzStorageTorchBlobClient:
 
     def _get_download_stream(self, pos: int, length: int) -> Iterator[bytes]:
         try:
-            # _LOGGER.debug(dir(self._sdk_blob_client))
-            response = self._generated_sdk_storage_client.blob.download(
+            return self._generated_sdk_storage_client.blob.download(
                 range=f"bytes={pos}-{pos + length - 1}",
-                modified_access_conditions=None
-            )
-            # _LOGGER.debug("download response: %s", dir(response))
-            # _LOGGER.debug("download response content: %s", response.content_length)
-
-            self._blob_properties.name = self._sdk_blob_client.blob_name
-            self._blob_properties.container = self._sdk_blob_client.container_name
-            self._blob_properties.etag=response.response.headers.get("ETag")
-            self._blob_properties.content_settings.content_type=response.response.headers.get("Content-Type"),
-            self._blob_properties.blob_type=response.response.headers.get("x-ms-blob-type"),
-            
-            # _LOGGER.debug("blob properties: %s", self._blob_properties)
-            response.modified_access_conditions = azure.storage.blob._generated.models.ModifiedAccessConditions(
-                if_match=self._blob_properties.etag)
-            return response   
+                modified_access_conditions=azure.storage.blob._generated.models.ModifiedAccessConditions(
+                if_match=self._blob_properties.etag
+                ),
+            )  
         except azure.core.exceptions.HttpResponseError as e:
             # TODO: This is so that we properly map exceptions from the generated client to the correct
             # exception class and error code. In the future, prior to a GA, we should consider pulling
