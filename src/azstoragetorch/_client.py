@@ -15,7 +15,7 @@ import threading
 import time
 import urllib.parse
 import uuid
-from typing import Optional, List, Tuple, Iterator, Union, Literal
+from typing import Optional, List, Tuple, Iterator, Union, Literal, TypedDict
 
 from azure.core.credentials import (
     AzureSasCredential,
@@ -44,6 +44,13 @@ SUPPORTED_WRITE_BYTES_LIKE_TYPE = Union[bytes, bytearray, memoryview]
 STAGE_BLOCK_FUTURE_TYPE = concurrent.futures.Future[str]
 
 
+class SDKKwargsType(TypedDict, total=False):
+    connection_data_block_size: int
+    transport: RequestsTransport
+    user_agent: str
+    credential: SDK_CREDENTIAL_TYPE
+
+
 class AzStorageTorchBlobClientFactory:
     # Socket timeouts set to match the default timeouts in Python SDK
     _SOCKET_CONNECTION_TIMEOUT = 20
@@ -60,6 +67,17 @@ class AzStorageTorchBlobClientFactory:
     def get_blob_client_from_url(self, blob_url: str) -> "AzStorageTorchBlobClient":
         blob_sdk_client = self._get_sdk_blob_client_from_url(blob_url)
         return AzStorageTorchBlobClient(blob_sdk_client)
+
+    def yield_blob_clients_from_container_url(
+        self, container_url: str, prefix: Optional[str] = None
+    ) -> Iterator["AzStorageTorchBlobClient"]:
+        container_sdk_client = self._get_sdk_container_client_from_container_url(
+            container_url
+        )
+        blob_names = container_sdk_client.list_blob_names(name_starts_with=prefix)
+        for blob_name in blob_names:
+            blob_client = container_sdk_client.get_blob_client(blob_name)
+            yield AzStorageTorchBlobClient(blob_client)
 
     def _get_sdk_credential(
         self, credential: AZSTORAGETORCH_CREDENTIAL_TYPE
@@ -78,23 +96,36 @@ class AzStorageTorchBlobClientFactory:
             read_timeout=self._SOCKET_READ_TIMEOUT,
         )
 
-    def _get_sdk_blob_client_from_url(self, blob_url: str) -> azure.storage.blob.BlobClient:
-        kwargs = {
+    def _get_sdk_blob_client_from_url(
+        self, blob_url: str
+    ) -> azure.storage.blob.BlobClient:
+        return azure.storage.blob.BlobClient.from_blob_url(
+            blob_url,
+            **self._get_sdk_client_kwargs(blob_url),
+        )
+
+    def _get_sdk_container_client_from_container_url(
+        self, container_url: str
+    ) -> azure.storage.blob.ContainerClient:
+        return azure.storage.blob.ContainerClient.from_container_url(
+            container_url,
+            **self._get_sdk_client_kwargs(container_url),
+        )
+
+    def _get_sdk_client_kwargs(self, resource_url: str) -> SDKKwargsType:
+        kwargs: SDKKwargsType = {
             "connection_data_block_size": self._CONNECTION_DATA_BLOCK_SIZE,
             "transport": self._transport,
             "user_agent": f"azstoragetorch/{__version__}",
         }
         credential = self._sdk_credential
-        if self._url_has_sas_token(blob_url):
+        if self._url_has_sas_token(resource_url):
             # The SDK prefers the explict credential over the one in the URL. So if a SAS token is
             # in the URL, we do not want the factory to automatically inject its credential, especially
             # if it would have been the default credential.
             credential = None
         kwargs["credential"] = credential
-        return azure.storage.blob.BlobClient.from_blob_url(
-            blob_url,
-            **kwargs,
-        )
+        return kwargs
 
     def _url_has_sas_token(self, resource_url: str) -> bool:
         parsed_url = urllib.parse.urlparse(resource_url)
@@ -116,6 +147,10 @@ class AzStorageTorchBlobClient:
         azure.core.exceptions.HttpResponseError,
         azure.core.exceptions.DecodeError,
     )
+    _QS_PARAMETERS_TO_INCLUDE = [
+        "snapshot",
+        "versionid",
+    ]
 
     def __init__(
         self,
@@ -128,15 +163,32 @@ class AzStorageTorchBlobClient:
 
         if max_in_flight_requests is None:
             max_in_flight_requests = self._get_max_in_flight_requests()
-        if executor is None:
-            executor = concurrent.futures.ThreadPoolExecutor(max_in_flight_requests)
+        self._max_in_flight_requests = max_in_flight_requests
         self._executor = executor
         # The standard thread pool executor does not bound the number of tasks submitted to it.
         # This semaphore introduces bound so that the number of submitted, in-progress
         # futures are not greater than the available workers. This is important for cases where we
         # buffer data into memory for uploads as is prevents large amounts of memory from being
         # submitted to the executor when there are no workers available to upload it.
-        self._max_in_flight_semaphore = threading.Semaphore(max_in_flight_requests)
+        self._max_in_flight_semaphore = threading.Semaphore(
+            self._max_in_flight_requests
+        )
+
+    @property
+    def url(self) -> str:
+        blob_sdk_url = self._sdk_blob_client.url
+        parsed_url = urllib.parse.urlparse(blob_sdk_url)
+        if parsed_url.query is None:
+            return blob_sdk_url
+        return self._get_url_with_filtered_query_string(parsed_url)
+
+    @property
+    def blob_name(self) -> str:
+        return self._sdk_blob_client.blob_name
+
+    @property
+    def container_name(self) -> str:
+        return self._sdk_blob_client.container_name
 
     def get_blob_size(self) -> int:
         return self._blob_properties.size
@@ -157,7 +209,9 @@ class AzStorageTorchBlobClient:
         futures = []
         for pos, length in stage_block_partitions:
             self._max_in_flight_semaphore.acquire()
-            future = self._executor.submit(self._stage_block, data[pos : pos + length])
+            future = self._get_executor().submit(
+                self._stage_block, data[pos : pos + length]
+            )
             future.add_done_callback(self._release_in_flight_semaphore)
             futures.append(future)
         return futures
@@ -167,7 +221,8 @@ class AzStorageTorchBlobClient:
         self._sdk_blob_client.commit_block_list(blob_blocks)
 
     def close(self) -> None:
-        self._executor.shutdown()
+        if self._executor is not None:
+            self._executor.shutdown()
 
     def _get_max_in_flight_requests(self) -> int:
         # Ideally we would just match this value to the max workers of the executor. However
@@ -181,6 +236,18 @@ class AzStorageTorchBlobClient:
         # if available, otherwise fall back to os.cpu_count().
         cpu_count_fn = getattr(os, "process_cpu_count", os.cpu_count)
         return min(32, (cpu_count_fn() or 1) + 4)
+
+    def _get_executor(self) -> concurrent.futures.Executor:
+        # We want executor creation to be lazy instead of instantiating immediately in
+        # the constructor because the executor itself is not pickleable. This is an issue
+        # when workers are used by PyTorch's DataLoader as workers are spawned as processes.
+        # So we delay executor creation until it is needed for reading/writing data which will
+        # happen after processes are spawned.
+        if self._executor is None:
+            self._executor = concurrent.futures.ThreadPoolExecutor(
+                self._max_in_flight_requests
+            )
+        return self._executor
 
     @functools.cached_property
     def _blob_properties(self) -> azure.storage.blob.BlobProperties:
@@ -200,7 +267,9 @@ class AzStorageTorchBlobClient:
             offset, length, self._PARTITION_SIZE
         ):
             futures.append(
-                self._executor.submit(self._download_with_retries, *read_partition)
+                self._get_executor().submit(
+                    self._download_with_retries, *read_partition
+                )
             )
         return b"".join(f.result() for f in futures)
 
@@ -282,3 +351,34 @@ class AzStorageTorchBlobClient:
 
     def _release_in_flight_semaphore(self, _: STAGE_BLOCK_FUTURE_TYPE) -> None:
         self._max_in_flight_semaphore.release()
+
+    def _get_url_with_filtered_query_string(
+        self, parsed_url: urllib.parse.ParseResult
+    ) -> str:
+        # Helper method to only include indentifying query string parameters for a blob URL. More specifically,
+        # we do not want to return any SAS tokens in the URL as it can accidentally result in leaking credentials
+        # as part of interfaces that expose the URL (e.g., azstoragetorch.datasets.Blob).
+        return urllib.parse.urlunparse(
+            (
+                parsed_url.scheme,
+                parsed_url.netloc,
+                parsed_url.path,
+                parsed_url.params,
+                self._filter_query_string(parsed_url.query),
+                parsed_url.fragment,
+            )
+        )
+
+    def _filter_query_string(self, qs: str) -> str:
+        # Ideally, we would be using urllib.parse to handle deconstructiong and reconstruction
+        # but the utilites also include quoting. This is an issue because parameters are often
+        # provided unquoted to the input URL (e.g., timestamps in URL use ":" instead of "%3A")
+        # and by avoiding quoting, we can better ensure the URL roundtripss correctly, matching
+        # the input URL.
+        qs_components = qs.split("&")
+        new_qs_components = []
+        for qs_component in qs_components:
+            for qs_parameter_to_include in self._QS_PARAMETERS_TO_INCLUDE:
+                if qs_component.startswith(f"{qs_parameter_to_include}="):
+                    new_qs_components.append(qs_component)
+        return "&".join(new_qs_components)

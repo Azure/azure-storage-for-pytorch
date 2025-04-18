@@ -4,6 +4,7 @@
 # license information.
 # --------------------------------------------------------------------------
 import concurrent.futures
+import copy
 from unittest import mock
 import os
 import threading
@@ -13,7 +14,13 @@ from azure.core.credentials import AzureSasCredential, AzureNamedKeyCredential
 import azure.core.exceptions
 from azure.core.pipeline.transport import HttpResponse
 from azure.identity import DefaultAzureCredential
-from azure.storage.blob import BlobClient, BlobProperties, StorageErrorCode, BlobBlock
+from azure.storage.blob import (
+    BlobClient,
+    BlobProperties,
+    StorageErrorCode,
+    BlobBlock,
+    ContainerClient,
+)
 from azure.storage.blob._generated._azure_blob_storage import AzureBlobStorage
 from azure.storage.blob._generated.operations import BlobOperations
 from azure.storage.blob._generated.models import ModifiedAccessConditions
@@ -36,6 +43,9 @@ EXPECTED_RETRYABLE_READ_EXCEPTIONS = [
     azure.core.exceptions.DecodeError,
 ]
 PROCESS_CPU_COUNT_UNAVAILABLE = object()
+SAS_TOKEN = "sp=r&st=2024-10-28T20:22:30Z&se=2024-10-29T04:22:30Z&spr=https&sv=2022-11-02&sr=c&sig=signature"
+SNAPSHOT = "2024-10-28T20:34:36.1724588Z"
+VERSION_ID = SNAPSHOT
 
 
 @pytest.fixture(autouse=True)
@@ -46,7 +56,7 @@ def sleep_patch():
 
 @pytest.fixture
 def sas_token():
-    return "sp=r&st=2024-10-28T20:22:30Z&se=2024-10-29T04:22:30Z&spr=https&sv=2022-11-02&sr=c&sig=signature"
+    return SAS_TOKEN
 
 
 @pytest.fixture
@@ -57,6 +67,11 @@ def blob_etag():
 @pytest.fixture
 def blob_properties(blob_length, blob_etag):
     return BlobProperties(**{"Content-Length": blob_length, "ETag": blob_etag})
+
+
+@pytest.fixture
+def blob_names():
+    return ["blob1", "blob2", "blob3"]
 
 
 @pytest.fixture
@@ -71,6 +86,21 @@ def mock_sdk_blob_client(mock_generated_sdk_storage_client):
     mock_sdk_client = mock.Mock(BlobClient)
     mock_sdk_client._client = mock_generated_sdk_storage_client
     return mock_sdk_client
+
+
+@pytest.fixture
+def mock_sdk_container_client(blob_names, mock_sdk_blob_clients_from_blob_names):
+    mock_container_client = mock.Mock(ContainerClient)
+    mock_container_client.list_blob_names.return_value = blob_names
+    mock_container_client.get_blob_client.side_effect = (
+        mock_sdk_blob_clients_from_blob_names
+    )
+    return mock_container_client
+
+
+@pytest.fixture
+def mock_sdk_blob_clients_from_blob_names(mock_sdk_blob_client, blob_names):
+    return [copy.copy(mock_sdk_blob_client) for _ in blob_names]
 
 
 @pytest.fixture
@@ -150,14 +180,41 @@ class TestAzStorageTorchBlobClientFactory:
         with mock.patch("azure.storage.blob.BlobClient", mock_sdk_blob_client):
             yield mock_sdk_blob_client
 
-    def assert_expected_from_blob_url_call(
+    @pytest.fixture(autouse=True)
+    def sdk_container_client_patch(self, mock_sdk_container_client):
+        with mock.patch(
+            "azure.storage.blob.ContainerClient", mock_sdk_container_client
+        ):
+            mock_sdk_container_client.from_container_url.return_value = (
+                mock_sdk_container_client
+            )
+            yield mock_sdk_container_client
+
+    @pytest.fixture
+    def azstoragetorch_blob_client_cls_patch(self):
+        with mock.patch(
+            "azstoragetorch._client.AzStorageTorchBlobClient", spec=True
+        ) as mock_azstorage_blob_client_cls:
+            yield mock_azstorage_blob_client_cls
+
+    def assert_expected_from_blob_url_call(self, mock_sdk_blob_client, **kwargs):
+        self.assert_expected_from_url_call(mock_sdk_blob_client.from_blob_url, **kwargs)
+
+    def assert_expected_from_container_url_call(
+        self, mock_sdk_container_client, **kwargs
+    ):
+        self.assert_expected_from_url_call(
+            mock_sdk_container_client.from_container_url, **kwargs
+        )
+
+    def assert_expected_from_url_call(
         self,
-        mock_blob_client,
+        mock_from_url_method,
         expected_url,
         expected_credential=mock.ANY,
         expected_transport=mock.ANY,
     ):
-        mock_blob_client.from_blob_url.assert_called_once_with(
+        mock_from_url_method.assert_called_once_with(
             expected_url,
             credential=expected_credential,
             transport=expected_transport,
@@ -165,28 +222,75 @@ class TestAzStorageTorchBlobClientFactory:
             user_agent=f"azstoragetorch/{__version__}",
         )
 
+    def assert_expected_sdk_blob_clients_from_container_url(
+        self,
+        mock_sdk_container_client,
+        expected_url,
+        expected_blob_names_used,
+        expected_prefix=None,
+        expected_credential=mock.ANY,
+        expected_credentials_cls=None,
+    ):
+        self.assert_expected_from_container_url_call(
+            mock_sdk_container_client,
+            expected_url=expected_url,
+            expected_credential=expected_credential,
+        )
+        if expected_credentials_cls is not None:
+            assert isinstance(
+                self.get_container_credential_used(mock_sdk_container_client),
+                expected_credentials_cls,
+            )
+        mock_sdk_container_client.list_blob_names.assert_called_once_with(
+            name_starts_with=expected_prefix
+        )
+        assert mock_sdk_container_client.get_blob_client.call_args_list == [
+            mock.call(blob_name) for blob_name in expected_blob_names_used
+        ]
+
+    def assert_expected_underlying_sdk_blob_clients(
+        self,
+        mock_azstorage_blob_client_cls,
+        expected_blob_sdk_clients,
+    ):
+        assert mock_azstorage_blob_client_cls.call_args_list == [
+            mock.call(sdk_blob_client) for sdk_blob_client in expected_blob_sdk_clients
+        ]
+
     def get_credential_used(self, mock_sdk_blob_client):
         return self.get_sdk_kwarg_used(mock_sdk_blob_client, "credential")
+
+    def get_container_credential_used(self, mock_sdk_container_client):
+        return self.get_sdk_kwarg_used(
+            mock_sdk_container_client,
+            "credential",
+            from_url_method_name="from_container_url",
+        )
 
     def get_transport_used(self, mock_sdk_blob_client):
         return self.get_sdk_kwarg_used(mock_sdk_blob_client, "transport")
 
-    def get_sdk_kwarg_used(self, mock_sdk_blob_client, kwarg_name):
-        return mock_sdk_blob_client.from_blob_url.call_args[1][kwarg_name]
+    def get_sdk_kwarg_used(
+        self, mock_sdk_client, kwarg_name, from_url_method_name="from_blob_url"
+    ):
+        mock_from_url_method = getattr(mock_sdk_client, from_url_method_name)
+        return mock_from_url_method.call_args[1][kwarg_name]
 
-    def test_get_blob_client_from_url(self, blob_url, mock_sdk_blob_client):
+    def get_mock_azstoragetorch_blob_clients(self, blob_names):
+        return [mock.Mock(AzStorageTorchBlobClient) for _ in blob_names]
+
+    def test_get_blob_client_from_url(
+        self, blob_url, mock_sdk_blob_client, azstoragetorch_blob_client_cls_patch
+    ):
         factory = AzStorageTorchBlobClientFactory()
-        with mock.patch(
-            "azstoragetorch._client.AzStorageTorchBlobClient", spec=True
-        ) as mock_azstorage_blob_client_cls:
-            returned_client = factory.get_blob_client_from_url(blob_url)
-            assert returned_client is mock_azstorage_blob_client_cls.return_value
-            mock_azstorage_blob_client_cls.assert_called_once_with(
-                mock_sdk_blob_client.from_blob_url.return_value
-            )
-            self.assert_expected_from_blob_url_call(
-                mock_sdk_blob_client, expected_url=blob_url
-            )
+        returned_client = factory.get_blob_client_from_url(blob_url)
+        assert returned_client is azstoragetorch_blob_client_cls_patch.return_value
+        azstoragetorch_blob_client_cls_patch.assert_called_once_with(
+            mock_sdk_blob_client.from_blob_url.return_value
+        )
+        self.assert_expected_from_blob_url_call(
+            mock_sdk_blob_client, expected_url=blob_url
+        )
 
     def test_credential_defaults_to_azure_default_credential(
         self, blob_url, mock_sdk_blob_client
@@ -250,7 +354,7 @@ class TestAzStorageTorchBlobClientFactory:
     def test_credential_defaults_to_azure_default_credential_for_snapshot_url(
         self, blob_url, mock_sdk_blob_client
     ):
-        snapshot_url = f"{blob_url}?snapshot=2024-10-28T20:34:36.1724588Z"
+        snapshot_url = f"{blob_url}?snapshot={SNAPSHOT}"
         factory = AzStorageTorchBlobClientFactory()
         factory.get_blob_client_from_url(snapshot_url)
         self.assert_expected_from_blob_url_call(
@@ -308,6 +412,98 @@ class TestAzStorageTorchBlobClientFactory:
         assert mock_sdk_blob_client.from_blob_url.call_count == 2
         second_transport_used = self.get_transport_used(mock_sdk_blob_client)
         assert first_transport_used is second_transport_used
+
+    def test_yield_blob_clients_from_container_url(
+        self,
+        container_url,
+        mock_sdk_container_client,
+        azstoragetorch_blob_client_cls_patch,
+        blob_names,
+        mock_sdk_blob_clients_from_blob_names,
+    ):
+        factory = AzStorageTorchBlobClientFactory()
+        mock_azstorage_blob_clients = self.get_mock_azstoragetorch_blob_clients(
+            blob_names
+        )
+        azstoragetorch_blob_client_cls_patch.side_effect = mock_azstorage_blob_clients
+        blob_clients = list(
+            factory.yield_blob_clients_from_container_url(container_url)
+        )
+        assert blob_clients == mock_azstorage_blob_clients
+        self.assert_expected_sdk_blob_clients_from_container_url(
+            mock_sdk_container_client,
+            expected_url=container_url,
+            expected_blob_names_used=blob_names,
+            expected_prefix=None,
+            expected_credentials_cls=DefaultAzureCredential,
+        )
+        self.assert_expected_underlying_sdk_blob_clients(
+            azstoragetorch_blob_client_cls_patch,
+            expected_blob_sdk_clients=mock_sdk_blob_clients_from_blob_names,
+        )
+
+    def test_yield_blob_clients_from_container_url_with_prefix(
+        self,
+        container_url,
+        mock_sdk_container_client,
+        blob_names,
+    ):
+        factory = AzStorageTorchBlobClientFactory()
+        list(
+            factory.yield_blob_clients_from_container_url(
+                container_url, prefix="prefix"
+            )
+        )
+        self.assert_expected_sdk_blob_clients_from_container_url(
+            mock_sdk_container_client,
+            expected_url=container_url,
+            expected_blob_names_used=blob_names,
+            expected_prefix="prefix",
+        )
+
+    def test_yield_blob_clients_from_container_url_with_credential(
+        self,
+        container_url,
+        mock_sdk_container_client,
+        blob_names,
+    ):
+        credential = AzureSasCredential("sas")
+        factory = AzStorageTorchBlobClientFactory(credential=credential)
+        list(factory.yield_blob_clients_from_container_url(container_url))
+        self.assert_expected_sdk_blob_clients_from_container_url(
+            mock_sdk_container_client,
+            expected_url=container_url,
+            expected_blob_names_used=blob_names,
+            expected_credential=credential,
+        )
+
+    def test_yield_blob_clients_from_container_url_with_anonymous_credential(
+        self,
+        container_url,
+        mock_sdk_container_client,
+        blob_names,
+    ):
+        factory = AzStorageTorchBlobClientFactory(credential=False)
+        list(factory.yield_blob_clients_from_container_url(container_url))
+        self.assert_expected_sdk_blob_clients_from_container_url(
+            mock_sdk_container_client,
+            expected_url=container_url,
+            expected_blob_names_used=blob_names,
+            expected_credential=None,
+        )
+
+    def test_yield_blob_clients_from_container_url_with_sas_in_url(
+        self, container_url, mock_sdk_container_client, blob_names, sas_token
+    ):
+        container_url_with_sas = f"{container_url}?{sas_token}"
+        factory = AzStorageTorchBlobClientFactory()
+        list(factory.yield_blob_clients_from_container_url(container_url_with_sas))
+        self.assert_expected_sdk_blob_clients_from_container_url(
+            mock_sdk_container_client,
+            expected_url=container_url_with_sas,
+            expected_blob_names_used=blob_names,
+            expected_credential=None,
+        )
 
 
 class TestAzStorageTorchBlobClient:
@@ -368,8 +564,63 @@ class TestAzStorageTorchBlobClient:
             )
         monkeypatch.setattr(os, "cpu_count", lambda: cpu_count)
         with mock.patch("concurrent.futures.ThreadPoolExecutor") as mock_executor:
-            AzStorageTorchBlobClient(mock_sdk_blob_client)
+            client = AzStorageTorchBlobClient(mock_sdk_blob_client)
+            # Executor instantiation is lazy. Stage some content to instantiate it
+            # and determine what the max_workers value is.
+            client.stage_blocks(b"content")
             mock_executor.assert_called_once_with(expected_max_workers)
+
+    @pytest.mark.parametrize(
+        "sdk_blob_client_url, expected_url",
+        [
+            (
+                "https://account.blob.core.windows.net/container/blob",
+                "https://account.blob.core.windows.net/container/blob",
+            ),
+            # URL with SAS token. SAS token should be removed.
+            (
+                f"https://account.blob.core.windows.net/container/blob?{SAS_TOKEN}",
+                "https://account.blob.core.windows.net/container/blob",
+            ),
+            # URL with snapshot. Snapshot should be kept
+            (
+                f"https://account.blob.core.windows.net/container/blob?snapshot={SNAPSHOT}",
+                f"https://account.blob.core.windows.net/container/blob?snapshot={SNAPSHOT}",
+            ),
+            # URL with version ID. Version ID should be kept
+            (
+                f"https://account.blob.core.windows.net/container/blob?versionid={VERSION_ID}",
+                f"https://account.blob.core.windows.net/container/blob?versionid={VERSION_ID}",
+            ),
+            # URL with snapshot, version ID, and SAS token. SAS token should be removed
+            (
+                f"https://account.blob.core.windows.net/container/blob?snapshot={SNAPSHOT}&versionid={VERSION_ID}&{SAS_TOKEN}",
+                f"https://account.blob.core.windows.net/container/blob?snapshot={SNAPSHOT}&versionid={VERSION_ID}",
+            ),
+            # URL with unknown query parameters. Unknown query parameters should be removed
+            (
+                "https://account.blob.core.windows.net/container/blob?unknown1=val1&unknown2=val2",
+                "https://account.blob.core.windows.net/container/blob",
+            ),
+        ],
+    )
+    def test_url(
+        self,
+        azstoragetorch_blob_client,
+        mock_sdk_blob_client,
+        sdk_blob_client_url,
+        expected_url,
+    ):
+        mock_sdk_blob_client.url = sdk_blob_client_url
+        assert azstoragetorch_blob_client.url == expected_url
+
+    def test_blob_name(self, azstoragetorch_blob_client, mock_sdk_blob_client):
+        mock_sdk_blob_client.blob_name = "blob-name"
+        assert azstoragetorch_blob_client.blob_name == "blob-name"
+
+    def test_container_name(self, azstoragetorch_blob_client, mock_sdk_blob_client):
+        mock_sdk_blob_client.container_name = "container-name"
+        assert azstoragetorch_blob_client.container_name == "container-name"
 
     def test_get_blob_size(
         self, azstoragetorch_blob_client, mock_sdk_blob_client, blob_properties
@@ -391,6 +642,13 @@ class TestAzStorageTorchBlobClient:
         client = AzStorageTorchBlobClient(mock_sdk_blob_client, mock_executor)
         client.close()
         mock_executor.shutdown.assert_called_once_with()
+
+    def test_no_executor_used_when_no_transfers(self, mock_sdk_blob_client):
+        with mock.patch("concurrent.futures.ThreadPoolExecutor") as mock_executor:
+            client = AzStorageTorchBlobClient(mock_sdk_blob_client)
+            client.close()
+            mock_executor.assert_not_called()
+            mock_executor.return_value.shutdown.assert_not_called()
 
     @pytest.mark.parametrize(
         "blob_size, download_offset, download_length, expected_ranges",
