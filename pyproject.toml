@@ -42,6 +42,7 @@ dev = [
     "pytest",
     "sphinx",
     "furo",
+    "sphinx-copybutton",
 ]
 
 [project.urls]
