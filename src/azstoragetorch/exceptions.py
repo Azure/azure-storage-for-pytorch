@@ -6,18 +6,18 @@
 
 
 class AZStorageTorchError(Exception):
-    """Base class for exceptions raised by azstoragetorch."""
+    """Base class for exceptions raised by ``azstoragetorch``."""
 
     pass
 
 
 class FatalBlobIOWriteError(AZStorageTorchError):
-    """Raised when a fatal error occurs during BlobIO write operations.
+    """Raised when a fatal error occurs during :py:class:`~azstoragetorch.io.BlobIO` write operations.
 
     When this exception is raised, it indicates no more writing can be performed
-    on the BlobIO object and no blocks staged as part of this BlobIO will be
-    committed. It is recommended to create a new BlobIO object and retry all
-    writes when attempting retries.
+    on the :py:class:`~azstoragetorch.io.BlobIO` object and no blocks staged as part of this
+    :py:class:`~azstoragetorch.io.BlobIO` will be committed. It is recommended to create a
+    new :py:class:`~azstoragetorch.io.BlobIO` object and retry all writes when attempting retries.
     """
 
     _MSG_FORMAT = (
