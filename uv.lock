@@ -41,6 +41,7 @@ dependencies = [
     { name = "azure-identity" },
     { name = "azure-storage-blob" },
     { name = "torch" },
+    { name = "typing-extensions" },
 ]
 
 [package.optional-dependencies]
@@ -66,6 +67,7 @@ requires-dist = [
     { name = "sphinx", marker = "extra == 'dev'" },
     { name = "sphinx-copybutton", marker = "extra == 'dev'" },
     { name = "torch", specifier = ">=2.6.0,<3" },
+    { name = "typing-extensions", specifier = ">=4.13.2,<5" },
 ]
 provides-extras = ["dev"]
 

@@ -5,7 +5,8 @@
 # --------------------------------------------------------------------------
 
 from collections.abc import Callable, Iterable, Iterator
-from typing import Optional, Union, TypeVar, TypedDict
+from typing import Optional, Union, TypedDict
+from typing_extensions import Self, TypeVar
 
 import torch.utils.data
 
@@ -13,8 +14,9 @@ from azstoragetorch.io import BlobIO
 from azstoragetorch import _client
 
 
-_TransformOutputType_co = TypeVar("_TransformOutputType_co", covariant=True)
-_TRANSFORM_TYPE = Callable[["Blob"], _TransformOutputType_co]
+_TransformOutputType_co = TypeVar(
+    "_TransformOutputType_co", covariant=True, default="_DefaultTransformOutput"
+)
 
 
 class _DefaultTransformOutput(TypedDict):
@@ -56,9 +58,13 @@ class Blob:
 
 class BlobDataset(torch.utils.data.Dataset[_TransformOutputType_co]):
     def __init__(
-        self, blobs: Iterable[Blob], transform: _TRANSFORM_TYPE = _default_transform
+        self,
+        blobs: Iterable[Blob],
+        transform: Optional[Callable[[Blob], _TransformOutputType_co]] = None,
     ):
         self._blobs = list(blobs)
+        if transform is None:
+            transform = _default_transform
         self._transform = transform
 
     @classmethod
@@ -67,8 +73,8 @@ class BlobDataset(torch.utils.data.Dataset[_TransformOutputType_co]):
         blob_urls: Union[str, Iterable[str]],
         *,
         credential: _client.AZSTORAGETORCH_CREDENTIAL_TYPE = None,
-        transform: _TRANSFORM_TYPE = _default_transform,
-    ) -> "BlobDataset":
+        transform: Optional[Callable[[Blob], _TransformOutputType_co]] = None,
+    ) -> Self:
         blobs = _BlobUrlsBlobIterable(blob_urls, credential=credential)
         return cls(blobs, transform=transform)
 
@@ -79,8 +85,8 @@ class BlobDataset(torch.utils.data.Dataset[_TransformOutputType_co]):
         *,
         prefix: Optional[str] = None,
         credential: _client.AZSTORAGETORCH_CREDENTIAL_TYPE = None,
-        transform: _TRANSFORM_TYPE = _default_transform,
-    ) -> "BlobDataset":
+        transform: Optional[Callable[[Blob], _TransformOutputType_co]] = None,
+    ) -> Self:
         blobs = _ContainerUrlBlobIterable(
             container_url, prefix=prefix, credential=credential
         )
@@ -96,9 +102,13 @@ class BlobDataset(torch.utils.data.Dataset[_TransformOutputType_co]):
 
 class IterableBlobDataset(torch.utils.data.IterableDataset[_TransformOutputType_co]):
     def __init__(
-        self, blobs: Iterable[Blob], transform: _TRANSFORM_TYPE = _default_transform
+        self,
+        blobs: Iterable[Blob],
+        transform: Optional[Callable[[Blob], _TransformOutputType_co]] = None,
     ):
         self._blobs = blobs
+        if transform is None:
+            transform = _default_transform
         self._transform = transform
 
     @classmethod
@@ -107,8 +117,8 @@ class IterableBlobDataset(torch.utils.data.IterableDataset[_TransformOutputType_
         blob_urls: Union[str, Iterable[str]],
         *,
         credential: _client.AZSTORAGETORCH_CREDENTIAL_TYPE = None,
-        transform: _TRANSFORM_TYPE = _default_transform,
-    ) -> "IterableBlobDataset":
+        transform: Optional[Callable[[Blob], _TransformOutputType_co]] = None,
+    ) -> Self:
         blobs = _BlobUrlsBlobIterable(blob_urls, credential=credential)
         return cls(blobs, transform=transform)
 
@@ -119,8 +129,8 @@ class IterableBlobDataset(torch.utils.data.IterableDataset[_TransformOutputType_
         *,
         prefix: Optional[str] = None,
         credential: _client.AZSTORAGETORCH_CREDENTIAL_TYPE = None,
-        transform: _TRANSFORM_TYPE = _default_transform,
-    ) -> "IterableBlobDataset":
+        transform: Optional[Callable[[Blob], _TransformOutputType_co]] = None,
+    ) -> Self:
         blobs = _ContainerUrlBlobIterable(
             container_url, prefix=prefix, credential=credential
         )
