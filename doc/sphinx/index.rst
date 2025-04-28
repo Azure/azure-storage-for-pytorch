@@ -4,9 +4,10 @@ Azure Storage for PyTorch Documentation
 Azure Storage for PyTorch (``azstoragetorch``) is a library that provides
 seamless, performance-optimized integrations between  `Azure Storage`_ and `PyTorch`_.
 Use this library to easily access and store data in Azure Storage while using PyTorch. The
-library currently supports:
+library currently offers:
 
-* :ref:`Saving and loading PyTorch models (i.e., checkpointing) to and from Azure Blob Storage <checkpoint-guide>`
+* :ref:`File-like object for saving and loading PyTorch models (i.e., checkpointing) with Azure Blob Storage <checkpoint-guide>`
+* :ref:`PyTorch datasets for loading data samples from Azure Blob Storage <datasets-guide>`
 
 Visit the :ref:`Getting Started <getting-started>` page for more information on how to start using
 Azure Storage for PyTorch.

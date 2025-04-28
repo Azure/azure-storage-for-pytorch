@@ -38,6 +38,7 @@ intersphinx_mapping = {
     # while the learn.microsoft.com version appear to not host this file.
     'azure-core': ('https://azuresdkdocs.z19.web.core.windows.net/python/azure-core/latest/', None),
     'azure-identity': ('https://azuresdkdocs.z19.web.core.windows.net/python/azure-identity/latest/', None),
+    'pillow': ('https://pillow.readthedocs.io/en/stable/', None),
 }
 
 autodoc_typehints = 'both'
