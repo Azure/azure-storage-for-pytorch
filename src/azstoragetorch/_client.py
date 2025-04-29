@@ -11,6 +11,7 @@ import logging
 import math
 import os
 import random
+import sys
 import threading
 import time
 import urllib.parse
@@ -197,6 +198,11 @@ class AzStorageTorchBlobClient:
     ) -> List[STAGE_BLOCK_FUTURE_TYPE]:
         if not data:
             raise ValueError("Data must not be empty.")
+        if (
+            isinstance(data, memoryview)
+            and not self._sdk_supports_memoryview_for_writes()
+        ):
+            data = data.obj
         stage_block_partitions = self._get_stage_block_partitions(data)
         futures = []
         for pos, length in stage_block_partitions:
@@ -371,3 +377,12 @@ class AzStorageTorchBlobClient:
                 None,
             )
         )
+
+    def _sdk_supports_memoryview_for_writes(self) -> bool:
+        # The SDK validates iterable bytes objects passed to its HTTP request layer
+        # expose an __iter__() method. However, memoryview objects did not expose an
+        # __iter__() method till Python 3.10.
+        #
+        # We still want to leverage memorviews when we can to avoid unnecessary copies. So
+        # we check the Python version to determine if we can use memoryviews for writes.
+        return sys.version_info >= (3, 10)
