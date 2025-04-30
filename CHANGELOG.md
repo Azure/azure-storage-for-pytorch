@@ -1,6 +1,6 @@
 # Release History
 
-## 0.1.0 (Unreleased)
+## 0.1.0 (2025-05-01)
 
 ### Features Added
 - Added `BlobIO` file-like object for reading and writing data to and from Azure Blob Storage.
