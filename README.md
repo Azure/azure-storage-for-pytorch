@@ -1,6 +1,6 @@
-# Azure Storage for PyTorch (`azstoragetorch`)
+# Azure Storage Connector for PyTorch (`azstoragetorch`)
 
-Azure Storage for PyTorch (`azstoragetorch`) is a library that provides
+The Azure Storage Connector for PyTorch (`azstoragetorch`) is a library that provides
 seamless, performance-optimized integrations between [Azure Storage] and  [PyTorch].
 Use this library to easily access and store data in Azure Storage while using PyTorch. The
 library currently offers:

@@ -13,7 +13,7 @@ Prerequisites
 
 Installation
 ~~~~~~~~~~~~
-Install the Azure Storage for PyTorch (``azstoragetorch``) library with `pip`_:
+Install the Azure Storage Connector for PyTorch (``azstoragetorch``) with `pip`_:
 
 .. code-block:: shell
 

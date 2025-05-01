@@ -6,7 +6,7 @@
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
-project = 'Azure Storage for PyTorch'
+project = 'Azure Storage Connector for PyTorch'
 copyright = '2025, Microsoft'
 
 # -- General configuration ---------------------------------------------------

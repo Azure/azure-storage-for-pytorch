@@ -7,7 +7,7 @@ name = "azstoragetorch"
 authors = [
     {name="Microsoft Corporation", email="ascl@microsoft.com"},
 ]
-description = "Azure Storage integrations for PyTorch"
+description = "Azure Storage Connector for PyTorch"
 readme = "README.md"
 requires-python = ">=3.9"
 license = {file = "LICENSE"}
