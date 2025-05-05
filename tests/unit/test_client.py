@@ -24,6 +24,7 @@ from azure.storage.blob import (
 from azure.storage.blob._generated._azure_blob_storage import AzureBlobStorage
 from azure.storage.blob._generated.operations import BlobOperations
 from azure.storage.blob._generated.models import ModifiedAccessConditions
+from azure.core.pipeline import Pipeline
 from azure.core.pipeline.transport import RequestsTransport
 
 from azstoragetorch._client import (
@@ -75,6 +76,11 @@ def blob_names():
 
 
 @pytest.fixture
+def mock_pipeline():
+    return mock.Mock(Pipeline)
+
+
+@pytest.fixture
 def mock_generated_sdk_storage_client():
     mock_generated_sdk_client = mock.Mock(AzureBlobStorage)
     mock_generated_sdk_client.blob = mock.Mock(BlobOperations)
@@ -82,19 +88,23 @@ def mock_generated_sdk_storage_client():
 
 
 @pytest.fixture
-def mock_sdk_blob_client(mock_generated_sdk_storage_client):
+def mock_sdk_blob_client(mock_generated_sdk_storage_client, mock_pipeline):
     mock_sdk_client = mock.Mock(BlobClient)
     mock_sdk_client._client = mock_generated_sdk_storage_client
+    mock_sdk_client._pipeline = mock_pipeline
     return mock_sdk_client
 
 
 @pytest.fixture
-def mock_sdk_container_client(blob_names, mock_sdk_blob_clients_from_blob_names):
+def mock_sdk_container_client(
+    blob_names, mock_sdk_blob_clients_from_blob_names, mock_pipeline
+):
     mock_container_client = mock.Mock(ContainerClient)
     mock_container_client.list_blob_names.return_value = blob_names
     mock_container_client.get_blob_client.side_effect = (
         mock_sdk_blob_clients_from_blob_names
     )
+    mock_container_client._pipeline = mock_pipeline
     return mock_container_client
 
 
@@ -178,6 +188,7 @@ class TestAzStorageTorchBlobClientFactory:
     @pytest.fixture(autouse=True)
     def sdk_blob_client_patch(self, mock_sdk_blob_client):
         with mock.patch("azure.storage.blob.BlobClient", mock_sdk_blob_client):
+            mock_sdk_blob_client.from_blob_url.return_value = mock_sdk_blob_client
             yield mock_sdk_blob_client
 
     @pytest.fixture(autouse=True)
@@ -211,15 +222,10 @@ class TestAzStorageTorchBlobClientFactory:
         self,
         mock_from_url_method,
         expected_url,
-        expected_credential=mock.ANY,
-        expected_transport=mock.ANY,
+        **kwargs,
     ):
         mock_from_url_method.assert_called_once_with(
-            expected_url,
-            credential=expected_credential,
-            transport=expected_transport,
-            connection_data_block_size=256 * 1024,
-            user_agent=f"azstoragetorch/{__version__}",
+            expected_url, **self.get_expected_from_url_kwargs(**kwargs)
         )
 
     def assert_expected_sdk_blob_clients_from_container_url(
@@ -256,6 +262,22 @@ class TestAzStorageTorchBlobClientFactory:
         assert mock_azstorage_blob_client_cls.call_args_list == [
             mock.call(sdk_blob_client) for sdk_blob_client in expected_blob_sdk_clients
         ]
+
+    def get_expected_from_url_kwargs(
+        self,
+        expected_credential=mock.ANY,
+        expected_transport=mock.ANY,
+        expected_pipeline=None,
+    ):
+        expected_from_url_kwargs = {
+            "credential": expected_credential,
+            "transport": expected_transport,
+            "connection_data_block_size": 256 * 1024,
+            "user_agent": f"azstoragetorch/{__version__}",
+        }
+        if expected_pipeline is not None:
+            expected_from_url_kwargs["_pipeline"] = expected_pipeline
+        return expected_from_url_kwargs
 
     def get_credential_used(self, mock_sdk_blob_client):
         return self.get_sdk_kwarg_used(mock_sdk_blob_client, "credential")
@@ -412,6 +434,78 @@ class TestAzStorageTorchBlobClientFactory:
         assert mock_sdk_blob_client.from_blob_url.call_count == 2
         second_transport_used = self.get_transport_used(mock_sdk_blob_client)
         assert first_transport_used is second_transport_used
+
+    def test_reuses_pipeline(self, blob_url, mock_sdk_blob_client, mock_pipeline):
+        factory = AzStorageTorchBlobClientFactory()
+        factory.get_blob_client_from_url(blob_url)
+        factory.get_blob_client_from_url(blob_url)
+
+        assert mock_sdk_blob_client.from_blob_url.call_args_list == [
+            mock.call(blob_url, **self.get_expected_from_url_kwargs()),
+            mock.call(
+                blob_url,
+                **self.get_expected_from_url_kwargs(expected_pipeline=mock_pipeline),
+            ),
+        ]
+
+    def test_does_not_reuse_pipeline_if_sas_used(
+        self, blob_url, sas_token, mock_sdk_blob_client, mock_pipeline
+    ):
+        factory = AzStorageTorchBlobClientFactory()
+        blob_url_with_sas = f"{blob_url}?{sas_token}"
+        factory.get_blob_client_from_url(blob_url_with_sas)
+        factory.get_blob_client_from_url(blob_url)
+        factory.get_blob_client_from_url(blob_url)
+        factory.get_blob_client_from_url(blob_url_with_sas)
+
+        assert mock_sdk_blob_client.from_blob_url.call_args_list == [
+            # No pipeline provided or cached for first client since it uses SAS.
+            mock.call(blob_url_with_sas, **self.get_expected_from_url_kwargs()),
+            # This client's pipeline should be cached since it uses the factory's credentials
+            mock.call(blob_url, **self.get_expected_from_url_kwargs()),
+            # Next non-SAS token client should now use cached pipeline
+            mock.call(
+                blob_url,
+                **self.get_expected_from_url_kwargs(expected_pipeline=mock_pipeline),
+            ),
+            # Should not use the cached pipeline since it uses a SAS token
+            mock.call(blob_url_with_sas, **self.get_expected_from_url_kwargs()),
+        ]
+
+    def test_reuse_pipeline_across_client_types(
+        self,
+        container_url,
+        blob_url,
+        mock_sdk_container_client,
+        mock_sdk_blob_client,
+        mock_pipeline,
+    ):
+        factory = AzStorageTorchBlobClientFactory()
+        # Undo default side effect on mock container client to be able to call
+        # yield_blob_clients_from_container_url multiple times without having to
+        # reconstruct consumed side effect.
+        mock_sdk_container_client.get_blob_client.side_effect = None
+        mock_sdk_container_client.get_blob_client.return_value = mock_sdk_blob_client
+
+        list(factory.yield_blob_clients_from_container_url(container_url))
+        factory.get_blob_client_from_url(blob_url)
+        list(factory.yield_blob_clients_from_container_url(container_url))
+
+        # Out of the container clients created, the second one should have used the
+        # shared pipeline.
+        assert mock_sdk_container_client.from_container_url.call_args_list == [
+            mock.call(container_url, **self.get_expected_from_url_kwargs()),
+            mock.call(
+                container_url,
+                **self.get_expected_from_url_kwargs(expected_pipeline=mock_pipeline),
+            ),
+        ]
+
+        # The one blob client created from get_blob_client_from_url call should have used
+        # pipeline from the first container client
+        self.assert_expected_from_blob_url_call(
+            mock_sdk_blob_client, expected_url=blob_url, expected_pipeline=mock_pipeline
+        )
 
     def test_yield_blob_clients_from_container_url(
         self,

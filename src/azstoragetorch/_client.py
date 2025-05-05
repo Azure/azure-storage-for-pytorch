@@ -27,6 +27,7 @@ from azure.identity import DefaultAzureCredential
 import azure.storage.blob
 import azure.storage.blob._generated.models
 from azure.storage.blob._shared.response_handlers import process_storage_error
+from azure.core.pipeline import Pipeline
 from azure.core.pipeline.transport import RequestsTransport
 
 from azstoragetorch._version import __version__
@@ -64,6 +65,7 @@ class AzStorageTorchBlobClientFactory:
     ):
         self._sdk_credential = self._get_sdk_credential(credential)
         self._transport = self._get_transport()
+        self._pipeline: Optional[Pipeline] = None
 
     def get_blob_client_from_url(self, blob_url: str) -> "AzStorageTorchBlobClient":
         blob_sdk_client = self._get_sdk_blob_client_from_url(blob_url)
@@ -100,18 +102,22 @@ class AzStorageTorchBlobClientFactory:
     def _get_sdk_blob_client_from_url(
         self, blob_url: str
     ) -> azure.storage.blob.BlobClient:
-        return azure.storage.blob.BlobClient.from_blob_url(
+        client = azure.storage.blob.BlobClient.from_blob_url(
             blob_url,
             **self._get_sdk_client_kwargs(blob_url),
         )
+        self._cache_pipeline_if_needed(client, blob_url)
+        return client
 
     def _get_sdk_container_client_from_container_url(
         self, container_url: str
     ) -> azure.storage.blob.ContainerClient:
-        return azure.storage.blob.ContainerClient.from_container_url(
+        client = azure.storage.blob.ContainerClient.from_container_url(
             container_url,
             **self._get_sdk_client_kwargs(container_url),
         )
+        self._cache_pipeline_if_needed(client, container_url)
+        return client
 
     def _get_sdk_client_kwargs(self, resource_url: str) -> SDKKwargsType:
         kwargs: SDKKwargsType = {
@@ -125,6 +131,17 @@ class AzStorageTorchBlobClientFactory:
             # in the URL, we do not want the factory to automatically inject its credential, especially
             # if it would have been the default credential.
             credential = None
+        elif self._pipeline is not None:
+            # We only want to share pipelines if we previously created a shareable pipeline and if
+            # the resource URL provided does not have a SAS token override, which would require a new
+            # pipeline since different credential policies are used based on credential provided.
+            #
+            # Technically, we also no longer need to provide a credential nor transport given these
+            # are not used in favor of the pipeline provided, which would already have incorporated
+            # them. We provide them still to avoid relying on the assumption that these resources
+            # will be shared via the pipeline, especially because the pipeline is technically not
+            # a public interface so that assumption could change in the future.
+            kwargs["_pipeline"] = self._pipeline
         kwargs["credential"] = credential
         return kwargs
 
@@ -136,6 +153,18 @@ class AzStorageTorchBlobClientFactory:
         # The signature is always required in a valid SAS token. So look for the "sig"
         # key to determine if the URL has a SAS token.
         return "sig" in parsed_qs
+
+    def _cache_pipeline_if_needed(
+        self,
+        client: Union[
+            azure.storage.blob.ContainerClient, azure.storage.blob.BlobClient
+        ],
+        resource_url: str,
+    ) -> None:
+        if not self._url_has_sas_token(resource_url) and self._pipeline is None:
+            # Only cache the pipeline if we did not have one previously cached and the client was not
+            # created using a SAS token, which would override the factory's base credential.
+            self._pipeline = client._pipeline
 
 
 class AzStorageTorchBlobClient:
