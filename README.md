@@ -1,4 +1,4 @@
-# Azure Storage Connector for PyTorch (`azstoragetorch`)
+# Azure Storage Connector for PyTorch (`azstoragetorch`) (Preview)
 
 The Azure Storage Connector for PyTorch (`azstoragetorch`) is a library that provides
 seamless, performance-optimized integrations between [Azure Storage] and  [PyTorch].
@@ -14,6 +14,13 @@ For detailed documentation on `azstoragetorch`, we recommend visiting its
 [official documentation]. It includes both a [user guide] and [API references]
 for the project. Content in this README is scoped to a high-level overview of the
 project and its GitHub repository policies.
+
+## Backwards compatibility
+While the project is major version `0` (i.e., version is `0.x.y`), public interfaces are not stable.
+
+Backwards incompatible changes may be introduced between minor version bumps (e.g., upgrading from
+`0.1.0` to `0.2.0`). If backwards compatibility is needed while using the library,
+we recommend pinning to a minor version of the library (e.g., `azstoragetorch~=0.1.0`).
 
 ## Getting started
 
@@ -130,13 +137,6 @@ dataloader = DataLoader(dataset, batch_size=32)
 for batch in dataloader:
     print(batch["url"])  # Prints blob URLs for each 32 sample batch
 ```
-
-## Backwards compatibility
-
-While the project is major version `0` (i.e., version is `0.x.y`), public interfaces are not stable. 
-Backwards incompatible changes may be introduced between minor version bumps (e.g., upgrading from
-`0.1.0` to `0.2.0`). If backwards compatibility is needed while using the library,
-we recommend pinning to a specific minor version of the library (e.g., `azstoragetorch==0.1`).
 
 
 ## Contributing
