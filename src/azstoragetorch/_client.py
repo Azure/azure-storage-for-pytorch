@@ -97,6 +97,7 @@ class AzStorageTorchBlobClientFactory:
         return RequestsTransport(
             connection_timeout=self._SOCKET_CONNECTION_TIMEOUT,
             read_timeout=self._SOCKET_READ_TIMEOUT,
+            connection_data_block_size=self._CONNECTION_DATA_BLOCK_SIZE,
         )
 
     def _get_sdk_blob_client_from_url(
@@ -121,7 +122,6 @@ class AzStorageTorchBlobClientFactory:
 
     def _get_sdk_client_kwargs(self, resource_url: str) -> SDKKwargsType:
         kwargs: SDKKwargsType = {
-            "connection_data_block_size": self._CONNECTION_DATA_BLOCK_SIZE,
             "transport": self._transport,
             "user_agent": f"azstoragetorch/{__version__}",
         }

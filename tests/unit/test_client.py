@@ -300,7 +300,6 @@ class TestAzStorageTorchBlobClientFactory:
         expected_from_url_kwargs = {
             "credential": expected_credential,
             "transport": expected_transport,
-            "connection_data_block_size": 256 * 1024,
             "user_agent": f"azstoragetorch/{__version__}",
         }
         if expected_pipeline is not None:
@@ -449,7 +448,9 @@ class TestAzStorageTorchBlobClientFactory:
                 expected_transport=mock_requests_transport_cls.return_value,
             )
             mock_requests_transport_cls.assert_called_once_with(
-                connection_timeout=20, read_timeout=60
+                connection_timeout=20,
+                read_timeout=60,
+                connection_data_block_size=256 * 1024,
             )
 
     def test_reuses_transport(self, blob_url, mock_sdk_blob_client):
