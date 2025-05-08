@@ -53,44 +53,21 @@ Saving a Model
 ~~~~~~~~~~~~~~
 To save a model to Azure Blob Storage, pass a :py:class:`azstoragetorch.io.BlobIO`
 directly to :py:func:`torch.save`. When creating the :py:class:`~azstoragetorch.io.BlobIO`,
-specify the URL to the blob you'd like to save the model to and use write mode (i.e., ``wb``)::
+specify the URL to the blob you'd like to save the model to and use write mode (i.e., ``wb``)
 
-    import torch
-    import torchvision.models  # Install separately: ``pip install torchvision``
-    from azstoragetorch.io import BlobIO
-
-    # Update URL with your own Azure Storage account and container name
-    CONTAINER_URL = "https://<my-storage-account-name>.blob.core.windows.net/<my-container-name>"
-
-    # Model to save. Replace with your own model.
-    model = torchvision.models.resnet18(weights="DEFAULT")
-
-    # Save trained model to Azure Blob Storage. This saves the model weights
-    # to a blob named "model_weights.pth" in the container specified by CONTAINER_URL.
-    with BlobIO(f"{CONTAINER_URL}/model_weights.pth", "wb") as f:
-        torch.save(model.state_dict(), f)
+    .. literalinclude:: ../../samples/saving_and_loading_model_sample.py
+        :lines: 16-18, 22, 60-64, 36-42
 
 
 Loading a Model
 ~~~~~~~~~~~~~~~
 To load a model from Azure Blob Storage, pass a :py:class:`azstoragetorch.io.BlobIO`
 directly to :py:func:`torch.load`. When creating the :py:class:`~azstoragetorch.io.BlobIO`,
-specify the URL to the blob storing the model weights and use read mode (i.e., ``rb``)::
-
-    import torch
-    import torchvision.models  # Install separately: ``pip install torchvision``
-    from azstoragetorch.io import BlobIO
-
-    # Update URL with your own Azure Storage account and container name
-    CONTAINER_URL = "https://<my-storage-account-name>.blob.core.windows.net/<my-container-name>"
-
-    # Model to load weights for. Replace with your own model.
-    model = torchvision.models.resnet18()
-
-    # Load trained model from Azure Blob Storage.  This loads the model weights
-    # from the blob named "model_weights.pth" in the container specified by CONTAINER_URL.
-    with BlobIO(f"{CONTAINER_URL}/model_weights.pth", "rb") as f:
-        model.load_state_dict(torch.load(f))
+specify the URL to the blob storing the model weights and use read mode (i.e., ``rb``)
+    
+    .. literalinclude:: ../../samples/saving_and_loading_model_sample.py
+        :dedent:
+        :lines: 16-18, 22, 60-64, 46-52
 
 
 .. _datasets-guide:
@@ -133,32 +110,28 @@ use the dataset class's corresponding ``from_container_url()`` method:
 * :py:meth:`azstoragetorch.datasets.IterableBlobDataset.from_container_url()` for iterable-style dataset
 
 The methods accept the URL to the Azure Storage container to list blobs from. Listing
-is performed using the `List Blobs API <List Blobs API_>`_. For example::
+is performed using the `List Blobs API <List Blobs API_>`_. For example
 
-    from azstoragetorch.datasets import BlobDataset, IterableBlobDataset
+.. tabs::
+    .. group-tab:: BlobDataset
+        .. literalinclude:: ../../samples/blob_dataset_sample.py
+            :lines: 16, 20, 39-45
 
-    # Update URL with your own Azure Storage account and container name
-    CONTAINER_URL = "https://<my-storage-account-name>.blob.core.windows.net/<my-container-name>"
-
-    # Create a map-style dataset by listing blobs in the container specified by CONTAINER_URL.
-    map_dataset = BlobDataset.from_container_url(CONTAINER_URL)
-
-    # Create an iterable-style dataset by listing blobs in the container specified by CONTAINER_URL.
-    iterable_dataset = IterableBlobDataset.from_container_url(CONTAINER_URL)
+    .. group-tab:: IterableBlobDataset
+        .. literalinclude:: ../../samples/iterable_blob_dataset_sample.py 
+            :lines: 16, 20, 39-45       
 
 The above examples lists all blobs in the container. To only include blobs whose name starts with
-a specific prefix, provide the ``prefix`` keyword argument::
+a specific prefix, provide the ``prefix`` keyword argument
 
-    from azstoragetorch.datasets import BlobDataset, IterableBlobDataset
-
-    # Update URL with your own Azure Storage account and container name
-    CONTAINER_URL = "https://<my-storage-account-name>.blob.core.windows.net/<my-container-name>"
-
-    # Create a map-style dataset only including blobs whose name starts with the prefix "images/"
-    map_dataset = BlobDataset.from_container_url(CONTAINER_URL, prefix="images/")
-
-    # Create an iterable-style dataset only including blobs whose name starts with the prefix "images/"
-    iterable_dataset = IterableBlobDataset.from_container_url(CONTAINER_URL, prefix="images/")
+.. tabs::
+    .. group-tab:: BlobDataset
+        .. literalinclude:: ../../samples/blob_dataset_sample.py
+            :lines: 16, 20, 52-58
+    
+    .. group-tab:: IterableBlobDataset
+        .. literalinclude:: ../../samples/iterable_blob_dataset_sample.py
+            :lines: 16, 20, 51-59
 
 
 Create Dataset from List of Blobs
@@ -170,26 +143,16 @@ corresponding ``from_blob_urls()`` method:
 * :py:meth:`azstoragetorch.datasets.BlobDataset.from_blob_urls()` for map-style dataset
 * :py:meth:`azstoragetorch.datasets.IterableBlobDataset.from_blob_urls()` for iterable-style dataset
 
-The method accepts a list of blob URLs to create the dataset from. For example::
+The method accepts a list of blob URLs to create the dataset from. For example
 
-    from azstoragetorch.datasets import BlobDataset, IterableBlobDataset
+.. tabs::
+    .. group-tab:: BlobDataset
+        .. literalinclude:: ../../samples/blob_dataset_sample.py
+            :lines: 16, 20, 62-75
 
-    # Update URL with your own Azure Storage account and container name
-    CONTAINER_URL = "https://<my-storage-account-name>.blob.core.windows.net/<my-container-name>"
-
-    # List of blob URLs to create dataset from. Update with your own blob names.
-    blob_urls = [
-        f"{CONTAINER_URL}/<blob-name-1>",
-        f"{CONTAINER_URL}/<blob-name-2>",
-        f"{CONTAINER_URL}/<blob-name-3>",
-    ]
-
-    # Create a map-style dataset from the list of blob URLs
-    map_dataset = BlobDataset.from_blob_urls(blob_urls)
-
-    # Create an iterable-style dataset from the list of blob URLs
-    iterable_dataset = IterableBlobDataset.from_blob_urls(blob_urls)
-
+    .. group-tab:: IterableBlobDataset
+        .. literalinclude:: ../../samples/iterable_blob_dataset_sample.py
+            :lines: 16, 20, 63-76
 
 Transforming Dataset Output
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~

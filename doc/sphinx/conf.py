@@ -28,6 +28,7 @@ extensions = [
     'sphinx.ext.autodoc',
     'sphinx.ext.intersphinx',
     'sphinx_copybutton',
+    'sphinx_tabs.tabs',
 ]
 
 intersphinx_mapping = {
