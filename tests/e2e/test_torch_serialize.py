@@ -5,6 +5,7 @@
 # --------------------------------------------------------------------------
 import pytest
 import torch
+import torchvision.models
 
 from azstoragetorch.io import BlobIO
 from utils import random_resource_name
@@ -20,8 +21,7 @@ def torch_hub_cache(tmp_path_factory):
 
 @pytest.fixture(scope="module")
 def model():
-    model = torch.hub.load("pytorch/vision:v0.10.0", "resnet101", pretrained=False)
-    return model
+    return torchvision.models.resnet101()
 
 
 @pytest.fixture(scope="module")
