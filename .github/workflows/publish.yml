@@ -8,9 +8,13 @@ jobs:
   run-ci:
     name: Run CI
     uses: ./.github/workflows/ci.yml
+  run-e2e-tests:
+    name: Run E2E tests
+    needs: run-ci
+    uses: ./.github/workflows/e2e.yml
   upload:
     name: Upload to partner blob container
-    needs: run-ci
+    needs: [run-ci, run-e2e-tests]
     runs-on: ubuntu-22.04
     steps:
       - name: Install AzCopy
