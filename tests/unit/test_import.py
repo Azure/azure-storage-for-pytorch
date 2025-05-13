@@ -8,6 +8,6 @@ import pytest
 
 def test_can_import_package():
     try:
-        import azstoragetorch
+        import azstoragetorch  # noqa: F401
     except ImportError:
         pytest.fail("Expected to be able to import azstoragetorch")

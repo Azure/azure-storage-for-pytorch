@@ -58,3 +58,17 @@ jobs:
         run: python -m pip install -r requirements-dev.txt
       - name: Run check-manifest
         run: check-manifest --no-build-isolation
+  run-ruff:
+    name: Run ruff
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332
+      - uses: actions/setup-python@39cd14951b08e74b54015e9e001cdefcf80e669f
+        with:
+          python-version: 3.12
+      - name: Install dependencies
+        run: python -m pip install -r requirements-dev.txt
+      - name: Run ruff check
+        run: ruff check .
+      - name: Run ruff format
+        run: ruff format --check

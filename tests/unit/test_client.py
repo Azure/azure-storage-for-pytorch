@@ -294,9 +294,7 @@ class TestEchoClientRequestIdPolicy:
                 mock_pipeline_request, mock_pipeline_response
             )
         except ClientRequestIdMismatchError as e:
-            pytest.fail(
-                f"Client request ID should match but received: {e}"
-            )
+            pytest.fail(f"Client request ID should match but received: {e}")
 
 
 class TestAzStorageTorchBlobClientFactory:
@@ -894,7 +892,7 @@ class TestAzStorageTorchBlobClient:
             ),
             (
                 f"https://account.blob.core.windows.net/container/blob?snapshot={SNAPSHOT}&versionid={VERSION_ID}&{SAS_TOKEN}",
-                f"https://account.blob.core.windows.net/container/blob",
+                "https://account.blob.core.windows.net/container/blob",
             ),
             (
                 "https://account.blob.core.windows.net/container/blob?unknown1=val1&unknown2=val2",
@@ -1248,10 +1246,10 @@ class TestAzStorageTorchBlobClient:
         http_response_error,
     ):
         http_response_error.response.text.return_value = (
-            f'<?xml version="1.0" encoding="utf-8"?>'
-            f" <Error><Code>InvalidRange</Code>"
-            f" <Message>message</Message>"
-            f"</Error>"
+            '<?xml version="1.0" encoding="utf-8"?>'
+            " <Error><Code>InvalidRange</Code>"
+            " <Message>message</Message>"
+            "</Error>"
         )
         blob_properties.size = 0
         mock_sdk_blob_client.get_blob_properties.return_value = blob_properties

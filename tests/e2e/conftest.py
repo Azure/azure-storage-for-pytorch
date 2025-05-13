@@ -16,7 +16,7 @@ def account_url():
     account_name = os.environ.get("AZSTORAGETORCH_STORAGE_ACCOUNT_NAME")
     if account_name is None:
         raise ValueError(
-            f'"AZSTORAGETORCH_STORAGE_ACCOUNT_NAME" environment variable must be set to run end to end tests.'
+            '"AZSTORAGETORCH_STORAGE_ACCOUNT_NAME" environment variable must be set to run end to end tests.'
         )
     return f"https://{account_name}.blob.core.windows.net"
 
@@ -36,6 +36,7 @@ def create_container(blob_service_client):
             container_name = random_resource_name()
         container_client = blob_service_client.create_container(name=container_name)
         return container_client
+
     return _create_container
 
 

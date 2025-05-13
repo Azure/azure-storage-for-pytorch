@@ -3,4 +3,4 @@
 # Licensed under the MIT License. See LICENSE in the project root for
 # license information.
 # --------------------------------------------------------------------------
-from azstoragetorch._version import __version__
+from azstoragetorch._version import __version__  # noqa: F401

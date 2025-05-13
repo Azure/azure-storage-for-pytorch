@@ -3,10 +3,7 @@
 # Licensed under the MIT License. See LICENSE in the project root for
 # license information.
 # --------------------------------------------------------------------------
-import os
 import io
-import random
-import string
 import pytest
 
 from azstoragetorch.io import BlobIO
@@ -68,7 +65,7 @@ def upload_blob(account_url, container_client, data):
 class TestRead:
     @pytest.mark.parametrize(
         "blob",
-        [   
+        [
             "empty",
             "small",
             "large",
