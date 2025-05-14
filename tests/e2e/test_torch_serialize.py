@@ -7,7 +7,7 @@ import pytest
 import torch
 
 from azstoragetorch.io import BlobIO
-from utils import random_resource_name
+from tests.e2e.utils import random_resource_name
 
 
 @pytest.fixture(scope="module", autouse=True)

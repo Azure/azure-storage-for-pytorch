@@ -221,7 +221,7 @@ class BlobDataset(torch.utils.data.Dataset[_TransformOutputType_co]):
         :returns: The blob, with ``transform`` applied, at the specified index.
         """
         blob = self._blobs[index]
-        return self._transform(blob)
+        return self._transform(blob)    # type: ignore[misc]
 
     def __len__(self) -> int:
         """Return the number of blobs in the dataset.
@@ -370,7 +370,7 @@ class IterableBlobDataset(torch.utils.data.IterableDataset[_TransformOutputType_
         worker_info = torch.utils.data.get_worker_info()
         for i, blob in enumerate(self._blobs):
             if self._should_yield_from_worker_shard(worker_info, i):
-                yield self._transform(blob)
+                yield self._transform(blob) # type: ignore[misc]
 
     def _should_yield_from_worker_shard(self, worker_info, blob_index: int) -> bool:
         if worker_info is None:

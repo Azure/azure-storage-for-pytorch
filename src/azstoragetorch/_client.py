@@ -238,7 +238,7 @@ class AzStorageTorchBlobClient:
             max_in_flight_requests = self._get_max_in_flight_requests()
         self._max_in_flight_requests = max_in_flight_requests
         self._executor = executor
-        self._blob_properties = None
+        self._blob_properties: Optional[azure.storage.blob.BlobProperties] = None
 
     @property
     def url(self) -> str:
@@ -444,7 +444,7 @@ class AzStorageTorchBlobClient:
                 self._blob_properties = azure.storage.blob.BlobProperties(
                     **{"Content-Length": 0}
                 )
-                return b""
+                return iter([b""])
             # TODO: This is so that we properly map exceptions from the generated client to the correct
             # exception class and error code. In the future, prior to a GA, we should consider pulling
             # in this function or a derivative of it if we plan to continue to raise Azure Python SDK
@@ -458,7 +458,7 @@ class AzStorageTorchBlobClient:
         self, error: azure.core.exceptions.HttpResponseError
     ) -> bool:
         return (
-            error.response
+            bool(error.response)
             and error.status_code == 416
             and "Content-Range" in error.response.headers
             and self._get_size_from_range(error.response.headers["Content-Range"]) == 0
