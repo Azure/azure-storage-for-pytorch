@@ -8,7 +8,7 @@ import pytest
 
 from azure.identity import DefaultAzureCredential
 from azure.storage.blob import BlobServiceClient
-from utils import random_resource_name
+from tests.e2e.utils import random_resource_name
 
 
 @pytest.fixture(scope="package")

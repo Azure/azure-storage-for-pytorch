@@ -8,7 +8,7 @@ import pytest
 
 from azstoragetorch.io import BlobIO
 from dataclasses import dataclass
-from utils import sample_data, random_resource_name
+from tests.e2e.utils import sample_data, random_resource_name
 
 
 _PARTITIONED_DOWNLOAD_THRESHOLD = 16 * 1024 * 1024

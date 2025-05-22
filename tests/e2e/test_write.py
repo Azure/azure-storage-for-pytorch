@@ -8,7 +8,7 @@ import pytest
 
 from azstoragetorch.io import BlobIO
 from azstoragetorch.exceptions import FatalBlobIOWriteError
-from utils import sample_data, random_resource_name
+from tests.e2e.utils import sample_data, random_resource_name
 
 _SMALL_BLOB_SIZE = 20
 _LARGE_BLOB_SIZE = 32 * 1024 * 1024 * 2

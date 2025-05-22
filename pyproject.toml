@@ -45,6 +45,7 @@ dev = [
     "furo",
     "sphinx-copybutton",
     "ruff",
+    "mypy",
 ]
 
 [project.urls]

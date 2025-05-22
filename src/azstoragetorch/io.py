@@ -86,7 +86,7 @@ class BlobIO(io.IOBase):
             _client.STAGE_BLOCK_FUTURE_TYPE
         ] = []
         self._stage_block_exception: Optional[BaseException] = None
-        self._blob_size = None
+        self._blob_size: Optional[int] = None
 
     def close(self) -> None:
         """Close the file-like object.

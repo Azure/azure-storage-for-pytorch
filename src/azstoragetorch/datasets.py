@@ -5,7 +5,7 @@
 # --------------------------------------------------------------------------
 
 from collections.abc import Callable, Iterable, Iterator
-from typing import Optional, Union, TypedDict
+from typing import Optional, Union, TypedDict, cast
 from typing_extensions import Self, TypeVar
 
 import torch.utils.data
@@ -137,7 +137,9 @@ class BlobDataset(torch.utils.data.Dataset[_TransformOutputType_co]):
     ):
         self._blobs = list(blobs)
         if transform is None:
-            transform = _default_transform
+            transform = cast(
+                Callable[[Blob], _TransformOutputType_co], _default_transform
+            )
         self._transform = transform
 
     @classmethod
@@ -284,7 +286,9 @@ class IterableBlobDataset(torch.utils.data.IterableDataset[_TransformOutputType_
     ):
         self._blobs = blobs
         if transform is None:
-            transform = _default_transform
+            transform = cast(
+                Callable[[Blob], _TransformOutputType_co], _default_transform
+            )
         self._transform = transform
 
     @classmethod
