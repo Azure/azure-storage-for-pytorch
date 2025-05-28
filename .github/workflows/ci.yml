@@ -98,7 +98,6 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: Install dependencies
         run: |
-          python -m pip install -r requirements-dev.txt
           python -m pip install --find-links=dist azstoragetorch
           python -m pip install pytest torchvision
       - name: Azure login
