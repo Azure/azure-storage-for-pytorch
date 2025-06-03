@@ -21,7 +21,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install azcopy
       - name: Download distributions
-        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: dists
           path: dist/
@@ -31,7 +31,7 @@ jobs:
           test -n "$azstoragetorch_version"
           echo "AZSTORAGETORCH_VERSION=$azstoragetorch_version" >> "$GITHUB_ENV"
       - name: Azure login
-        uses: azure/login@6c251865b4e6290e7b78be643ea2d005bc51f69a
+        uses: azure/login@a457da9ea143d694b1b9c7c869ebb04ebe844ef5
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}

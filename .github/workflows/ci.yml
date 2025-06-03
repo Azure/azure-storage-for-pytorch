@@ -7,8 +7,8 @@ jobs:
     name: Build distributions
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332
-      - uses: actions/setup-python@39cd14951b08e74b54015e9e001cdefcf80e669f
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: 3.12
       - name: Install dependencies
@@ -16,7 +16,7 @@ jobs:
       - name: Build distributions
         run: python -m build --no-isolation
       - name: Upload distributions
-        uses: actions/upload-artifact@0b2256b8c012f0828dc542b3febcab082c67f72b
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: dists
           path: dist/
@@ -30,14 +30,14 @@ jobs:
         python-version: [ "3.9", "3.10", "3.11", "3.12", "3.13" ]
         os: [ ubuntu-latest, macOS-latest, windows-latest ]
     steps:
-      - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
       - name: Download distributions
-        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: dists
           path: dist/
       - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@39cd14951b08e74b54015e9e001cdefcf80e669f
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install dependencies
@@ -50,8 +50,8 @@ jobs:
     name: Check sdist
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332
-      - uses: actions/setup-python@39cd14951b08e74b54015e9e001cdefcf80e669f
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: 3.12
       - name: Install dependencies
@@ -62,8 +62,8 @@ jobs:
     name: Run ruff
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332
-      - uses: actions/setup-python@39cd14951b08e74b54015e9e001cdefcf80e669f
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: 3.12
       - name: Install dependencies
@@ -86,14 +86,14 @@ jobs:
         os: [ ubuntu-latest, macOS-latest, windows-latest ]
     if: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch' }}
     steps:
-      - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
       - name: Download distributions
-        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: dists
           path: dist/
       - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@39cd14951b08e74b54015e9e001cdefcf80e669f
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install dependencies
@@ -101,7 +101,7 @@ jobs:
           python -m pip install --find-links=dist azstoragetorch
           python -m pip install pytest torchvision
       - name: Azure login
-        uses: azure/login@6c251865b4e6290e7b78be643ea2d005bc51f69a
+        uses: azure/login@a457da9ea143d694b1b9c7c869ebb04ebe844ef5
         with:
           client-id: ${{ secrets.AZURE_E2E_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_E2E_TENANT_ID }}
@@ -114,8 +114,8 @@ jobs:
     name: Run mypy
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332
-      - uses: actions/setup-python@39cd14951b08e74b54015e9e001cdefcf80e669f
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: 3.12
       - name: Install dependencies
