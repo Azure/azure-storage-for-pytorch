@@ -59,3 +59,6 @@ package-dir = {"" = "src"}
 
 [tool.setuptools.dynamic]
 version = {attr = "azstoragetorch._version.__version__"}
+
+[tool.ruff]
+extend-exclude = ["*.ipynb"]

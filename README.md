@@ -139,6 +139,20 @@ for batch in dataloader:
 ```
 
 
+## Additional resources
+
+For more information on using the Azure Storage Connector for PyTorch, see the following resources:
+
+* [Official documentation][official documentation]
+* [Code samples](samples/)
+* [Microsoft Build 2025 presentation][2025 build presentation] - Watch this presentation on the Azure Storage
+Connector for PyTorch to learn more about the library and how to use its features with PyTorch.
+* [Introductory Jupyter notebook](samples/intro_notebook/azstoragetorch-intro.ipynb) - Run this notebook to learn
+how to use the library to save and load PyTorch models and datasets from Azure Blob Storage. This is the same notebook
+used in the [Microsoft Build 2025 presentation][2025 build presentation].
+
+
+
 ## Contributing
 
 This project welcomes contributions and suggestions.  Most contributions require you to agree to a
@@ -180,3 +194,5 @@ or contact [opencode@microsoft.com](mailto:opencode@microsoft.com) with any addi
 [blobio reference]: https://azure.github.io/azure-storage-for-pytorch/api.html#azstoragetorch.io.BlobIO
 [blobdataset reference]: https://azure.github.io/azure-storage-for-pytorch/api.html#azstoragetorch.datasets.BlobDataset
 [iterableblobdataset reference]: https://azure.github.io/azure-storage-for-pytorch/api.html#azstoragetorch.datasets.IterableBlobDataset
+
+[2025 build presentation]: https://youtu.be/lJ9ZiiVP1-w?si=zowVmXemFK4w9HKc&t=1437
