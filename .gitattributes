@@ -4,3 +4,4 @@
 Makefile text eol=lf
 requirements-dev.txt text eol=lf
 uv.lock text eol=lf
+samples/intro_notebook/azstoragetorch-intro.ipynb eol=lf
