@@ -190,31 +190,10 @@ retrieve properties and content of the blob as part of the ``transform`` callabl
 
 Emulating the `PyTorch transform tutorial <PyTorch transform tutorial_>`_, the example below shows
 how to transform a :py:class:`~azstoragetorch.datasets.Blob` object to a :py:class:`torch.Tensor` of
-a :py:mod:`PIL.Image`::
+a :py:mod:`PIL.Image`
 
-    from azstoragetorch.datasets import BlobDataset, Blob
-    import PIL.Image  # Install separately: ``pip install pillow``
-    import torch
-    import torchvision.transforms  # Install separately: ``pip install torchvision``
-
-    # Update URL with your own Azure Storage account, container, and blob containing an image
-    IMAGE_BLOB_URL = "https://<storage-account-name>.blob.core.windows.net/<container-name>/<blob-image-name>"
-
-    # Define transform to convert blob to a tuple of (image_name, image_tensor)
-    def to_img_name_and_tensor(blob: Blob) -> tuple[str, torch.Tensor]:
-        # Use blob reader to retrieve blob contents and then transform to an image tensor.
-        with blob.reader() as f:
-            image = PIL.Image.open(f)
-            image_tensor = torchvision.transforms.ToTensor()(image)
-        return blob.blob_name, image_tensor
-
-    # Provide transform to dataset constructor
-    dataset = BlobDataset.from_blob_urls(
-        IMAGE_BLOB_URL,
-        transform=to_img_name_and_tensor,
-    )
-
-    print(dataset[0])  # Prints tuple of (image_name, image_tensor) for blob in dataset
+    .. literalinclude:: ../../samples/map_dataset/transforming_dataset_output.py
+        :lines: 9-
 
 The output should include the blob name and :py:class:`~torch.Tensor` of the image::
 
@@ -227,21 +206,10 @@ Using Dataset with PyTorch DataLoader
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Once instantiated, ``azstoragetorch`` datasets can be provided directly to a PyTorch
-:py:class:`~torch.utils.data.DataLoader` for loading samples::
+:py:class:`~torch.utils.data.DataLoader` for loading samples
 
-    from azstoragetorch.datasets import BlobDataset
-    from torch.utils.data import DataLoader
-
-    # Update URL with your own Azure Storage account and container name
-    CONTAINER_URL = "https://<my-storage-account-name>.blob.core.windows.net/<my-container-name>"
-
-    dataset = BlobDataset.from_container_url(CONTAINER_URL)
-
-    # Create a DataLoader to load data samples from the dataset in batches of 32
-    dataloader = DataLoader(dataset, batch_size=32)
-
-    for batch in dataloader:
-        print(batch["url"])  # Prints blob URLs for each 32 sample batch
+    .. literalinclude:: ../../samples/map_dataset/dataset_with_pytorch_dataloader.py
+        :lines: 9-
 
 
 Iterable-style Datasets with Multiple Workers
@@ -251,32 +219,10 @@ When using a :py:class:`~azstoragetorch.datasets.IterableBlobDataset` and
 :py:class:`~torch.utils.data.DataLoader` with multiple workers (i.e., ``num_workers > 1``), the
 :py:class:`~azstoragetorch.datasets.IterableBlobDataset` automatically shards data samples
 returned across workers to avoid a :py:class:`~torch.utils.data.DataLoader` from returning
-duplicate samples from its workers::
+duplicate samples from its workers
 
-    from azstoragetorch.datasets import IterableBlobDataset
-    from torch.utils.data import DataLoader
-
-    # Update URL with your own Azure Storage account and container name
-    CONTAINER_URL = "https://<my-storage-account-name>.blob.core.windows.net/<my-container-name>"
-
-    dataset = IterableBlobDataset.from_container_url(CONTAINER_URL)
-
-    # Iterate over the dataset to get the number of samples in it
-    num_samples_from_dataset = len([blob["url"] for blob in dataset])
-
-    # Create a DataLoader to load data samples from the dataset in batches of 32 using 4 workers
-    dataloader = DataLoader(dataset, batch_size=32, num_workers=4)
-
-    # Iterate over the DataLoader to get the number of samples returned from it
-    num_samples_from_dataloader = 0
-    for batch in dataloader:
-        num_samples_from_dataloader += len(batch["url"])
-
-    # The number of samples returned from the dataset should be equal to the number of samples
-    # returned from the DataLoader. If the dataset did not handle sharding, the number of samples
-    # returned from the DataLoader would be ``num_workers`` times (i.e., four times) the number
-    # of samples in the dataset.
-    assert num_samples_from_dataset == num_samples_from_dataloader
+    .. literalinclude:: ../../samples/iterable_dataset/multiple_workers.py
+        :lines: 9-
 
 
 .. _Azure subscription: https://azure.microsoft.com/free/
