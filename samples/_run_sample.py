@@ -15,6 +15,7 @@ import argparse
 
 STORAGE_ACCOUNT_NAME = os.environ.get("AZSTORAGETORCH_STORAGE_ACCOUNT_NAME")
 CONTAINER_NAME = os.environ.get("AZSTORAGETORCH_CONTAINER_NAME")
+BLOB_IMAGE_NAME = os.environ.get("AZSTORAGETORCH_BLOB_IMAGE_NAME")
 
 
 def update_placeholders(path):
@@ -28,7 +29,9 @@ def update_placeholders(path):
 
     account_pattern = r"<my-storage-account-name>"
     container_pattern = r"<my-container-name>"
+    blob_image_pattern = r"<blob-image-name>"
     modified_content = re.sub(account_pattern, STORAGE_ACCOUNT_NAME, content)
+    modified_content = re.sub(blob_image_pattern, BLOB_IMAGE_NAME, modified_content)
     return re.sub(container_pattern, CONTAINER_NAME, modified_content)
 
 
