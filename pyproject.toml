@@ -30,7 +30,7 @@ dependencies = [
     # avoid automatically breaking the library if a new version of the SDK breaks the
     # internal API. As new versions of the SDK are released, the ceiling of this version
     # range should be updated to match the new version.
-    "azure-storage-blob>=12.24.0,<=12.25.1",
+    "azure-storage-blob>=12.24.0,<=12.26.0",
     "torch>=2.6.0,<3",
     "typing-extensions>=4.13.2,<5",
 ]
