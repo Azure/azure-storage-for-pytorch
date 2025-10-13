@@ -8,6 +8,7 @@ jobs:
   run-ci:
     name: Run CI
     uses: ./.github/workflows/ci.yml
+    secrets: inherit
   upload:
     name: Upload to partner blob container
     needs: run-ci
