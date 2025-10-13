@@ -1,5 +1,10 @@
 # Release History
 
+## 0.1.2 (2025-10-13)
+
+### Other Changes
+- Update `azure-storage-blob` dependency to support up to version `12.26.0`.
+
 ## 0.1.1 (2025-05-12)
 
 ### Bug Fixes
