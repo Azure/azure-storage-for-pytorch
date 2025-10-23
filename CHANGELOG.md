@@ -1,6 +1,6 @@
 # Release History
 
-## 0.2.0 (TBD)
+## 0.2.0 (2025-10-23)
 
 ### Breaking Changes
 - Remove support for Python 3.9. Minimum supported Python version is now 3.10.
