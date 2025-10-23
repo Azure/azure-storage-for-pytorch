@@ -1,5 +1,10 @@
 # Release History
 
+## Next Release (TBD)
+
+### Other Changes
+- Update `azure-storage-blob` dependency to support up to version `12.27.0`.
+
 ## 0.1.2 (2025-10-13)
 
 ### Other Changes
