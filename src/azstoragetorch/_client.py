@@ -268,11 +268,11 @@ class AzStorageTorchBlobClient:
 
     @property
     def blob_name(self) -> str:
-        return self._sdk_blob_client.blob_name
+        return self._sdk_blob_client.blob_name  # type: ignore[attr-defined]
 
     @property
     def container_name(self) -> str:
-        return self._sdk_blob_client.container_name
+        return self._sdk_blob_client.container_name  # type: ignore[attr-defined]
 
     def get_blob_size(self) -> int:
         return self._get_blob_properties().size
