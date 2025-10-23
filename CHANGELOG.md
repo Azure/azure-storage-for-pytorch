@@ -1,8 +1,12 @@
 # Release History
 
-## Next Release (TBD)
+## 0.2.0 (TBD)
+
+### Breaking Changes
+- Remove support for Python 3.9. Minimum supported Python version is now 3.10.
 
 ### Other Changes
+- Add support for Python 3.14.
 - Update `azure-storage-blob` dependency to support up to version `12.27.0`.
 
 ## 0.1.2 (2025-10-13)
