@@ -22,9 +22,9 @@ from azure.storage.blob import (
     BlobBlock,
     ContainerClient,
 )
-from azure.storage.blob._generated._azure_blob_storage import AzureBlobStorage
+from azure.storage.blob._generated import AzureBlobStorage
 from azure.storage.blob._generated.operations import BlobOperations
-from azure.storage.blob._generated.models import ModifiedAccessConditions
+from azure.core import MatchConditions
 from azure.core.pipeline import Pipeline
 from azure.core.pipeline import PipelineRequest, PipelineResponse
 from azure.core.pipeline.transport import RequestsTransport
@@ -207,6 +207,32 @@ def mock_download_response(
     )
     response.__iter__.return_value = response.iter_content_func
     return response
+
+
+def make_download_side_effect(responses):
+    """Build a side_effect callable that invokes the SDK ``cls`` callback.
+
+    The new generated download() returns a raw bytes iterator and exposes
+    response headers via the ``cls`` callback. Mocks don't auto-invoke
+    ``cls``, so this helper does it for each queued response.
+    """
+    queue = list(responses)
+
+    def _side_effect(*args, **kwargs):
+        next_response = queue.pop(0)
+        if isinstance(next_response, BaseException) or (
+            isinstance(next_response, type) and issubclass(next_response, BaseException)
+        ):
+            raise next_response
+        cls = kwargs.get("cls")
+        if cls is not None:
+            pipeline_response = mock.Mock()
+            pipeline_response.http_response = mock.Mock()
+            pipeline_response.http_response.headers = next_response.response.headers
+            cls(pipeline_response, next_response, {})
+        return next_response
+
+    return _side_effect
 
 
 def preset_blob_size_on_clients(
@@ -820,12 +846,12 @@ class TestAzStorageTorchBlobClient:
         expected_download_calls = []
         for i, expected_range in enumerate(expected_ranges):
             download_kwargs = {
+                "cls": mock.ANY,
                 "range": f"bytes={expected_range}",
             }
             if i != 0 or known_blob_size:
-                download_kwargs["modified_access_conditions"] = (
-                    ModifiedAccessConditions(if_match=expected_etag)
-                )
+                download_kwargs["etag"] = expected_etag
+                download_kwargs["match_condition"] = MatchConditions.IfNotModified
             expected_download_calls.append(mock.call(**download_kwargs))
         assert (
             mock_generated_sdk_storage_client.blob.download.call_args_list
@@ -1161,12 +1187,12 @@ class TestAzStorageTorchBlobClient:
         if known_blob_size:
             azstoragetorch_blob_client.get_blob_size()
         content = random_bytes(blob_size)
-        mock_generated_sdk_storage_client.blob.download.side_effect = [
+        mock_generated_sdk_storage_client.blob.download.side_effect = make_download_side_effect(
             mock_download_response(
                 expected_range, blob_size, content, etag=blob_properties.etag
             )
             for expected_range in expected_ranges
-        ]
+        )
         download_kwargs = {}
         expected_download_content = content
         if download_offset is not None:

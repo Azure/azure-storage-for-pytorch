@@ -32,8 +32,8 @@ from azure.core.credentials import (
 import azure.core.exceptions
 from azure.identity import DefaultAzureCredential
 import azure.storage.blob
-import azure.storage.blob._generated.models
 from azure.storage.blob._shared.response_handlers import process_storage_error
+from azure.core import MatchConditions
 from azure.core.pipeline import Pipeline
 from azure.core.pipeline.policies import SansIOHTTPPolicy
 from azure.core.pipeline.transport import RequestsTransport
@@ -66,9 +66,8 @@ class SDKKwargsType(TypedDict, total=False):
 
 class DownloadKwargsType(TypedDict, total=False):
     range: str
-    modified_access_conditions: (
-        azure.storage.blob._generated.models.ModifiedAccessConditions
-    )
+    etag: str
+    match_condition: MatchConditions
 
 
 # Policy to ensure that request made by the client matches responses returned. This
@@ -427,8 +426,7 @@ class AzStorageTorchBlobClient:
                 time.sleep(backoff_time)
         raise RuntimeError("Exhausted all retry attempts to read blob content.")
 
-    def _set_blob_properties_from_download(self, response) -> None:
-        headers = response.response.headers
+    def _set_blob_properties_from_download(self, headers) -> None:
         blob_size = self._get_size_from_range(headers["Content-Range"])
         self._blob_properties = azure.storage.blob.BlobProperties(
             **{"Content-Length": blob_size, "ETag": headers.get("ETag")}
@@ -440,16 +438,22 @@ class AzStorageTorchBlobClient:
                 "range": f"bytes={pos}-{pos + length - 1}",
             }
             if self._blob_properties is not None:
-                download_kwargs["modified_access_conditions"] = (
-                    azure.storage.blob._generated.models.ModifiedAccessConditions(
-                        if_match=self._blob_properties.etag
-                    )
-                )
+                download_kwargs["etag"] = self._blob_properties.etag
+                download_kwargs["match_condition"] = MatchConditions.IfNotModified
+            # Use cls callback to capture the pipeline response so we can read
+            # response headers. The newer generated SDK returns a raw bytes
+            # generator that no longer exposes a .response attribute.
+            captured: dict = {}
+
+            def _cls(pipeline_response, deserialized, response_headers):
+                captured["response"] = pipeline_response.http_response
+                return deserialized
+
             response = self._generated_sdk_storage_client.blob.download(
-                **download_kwargs
+                cls=_cls, **download_kwargs
             )
             if self._blob_properties is None:
-                self._set_blob_properties_from_download(response)
+                self._set_blob_properties_from_download(captured["response"].headers)
             return response
         except azure.core.exceptions.HttpResponseError as e:
             if self._is_invalid_range_from_empty_blob_error(e):
