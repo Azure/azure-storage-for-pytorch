@@ -44,8 +44,18 @@ jobs:
         run: |
           python -m pip install -r requirements-dev.txt
           python -m pip install --no-index --find-links=dist azstoragetorch
-      - name: Run tests
+      - name: Run unit tests
         run: pytest tests/unit
+      - name: Install Azurite
+        run: npm install --global azurite@3.37.0
+      - name: Start Azurite
+        id: azurite
+        run: azurite-blob --skipApiVersionCheck --silent --location "${{ runner.temp }}/azurite"
+        background: true
+      - name: Run azurite e2e tests
+        run: pytest tests/e2e --azurite
+      - name: Stop Azurite
+        cancel: azurite
   check-sdist:
     name: Check sdist
     runs-on: ubuntu-latest

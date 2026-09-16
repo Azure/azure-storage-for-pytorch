@@ -54,18 +54,18 @@ def assert_state_dict(expected_state_dict, actual_state_dict):
 
 
 class TestTorchSerialize:
-    def test_load_existing_model(self, state_dict_blob_url, model):
-        with BlobIO(state_dict_blob_url, "rb") as f:
+    def test_load_existing_model(self, state_dict_blob_url, model, credential):
+        with BlobIO(state_dict_blob_url, "rb", credential=credential) as f:
             state_dict = torch.load(f)
 
         assert_state_dict(model.state_dict(), state_dict)
 
-    def test_save_model(self, model, container_url):
+    def test_save_model(self, model, container_url, credential):
         save_blob_url = f"{container_url}/{random_resource_name()}.pth"
-        with BlobIO(save_blob_url, "wb") as f:
+        with BlobIO(save_blob_url, "wb", credential=credential) as f:
             torch.save(model.state_dict(), f)
 
-        with BlobIO(save_blob_url, "rb") as f:
+        with BlobIO(save_blob_url, "rb", credential=credential) as f:
             state_dict = torch.load(f)
 
         assert_state_dict(model.state_dict(), state_dict)

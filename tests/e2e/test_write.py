@@ -4,11 +4,13 @@
 # license information.
 # --------------------------------------------------------------------------
 import io
+
 import pytest
 
-from azstoragetorch.io import BlobIO
 from azstoragetorch.exceptions import FatalBlobIOWriteError
-from tests.e2e.utils import sample_data, random_resource_name
+from azstoragetorch.io import BlobIO
+
+from tests.e2e.utils import random_resource_name, sample_data
 
 _SMALL_BLOB_SIZE = 20
 _LARGE_BLOB_SIZE = 32 * 1024 * 1024 * 2
@@ -33,9 +35,9 @@ class TestWrite:
         "blob_size",
         [_SMALL_BLOB_SIZE, _LARGE_BLOB_SIZE],
     )
-    def test_write_all_content(self, blob_url, blob_size, container_client):
+    def test_write_all_content(self, blob_url, blob_size, container_client, credential):
         blob_data = sample_data(blob_size)
-        with BlobIO(blob_url, "wb") as f:
+        with BlobIO(blob_url, "wb", credential=credential) as f:
             assert f.write(blob_data) == len(blob_data)
             assert f.tell() == len(blob_data)
 
@@ -52,10 +54,12 @@ class TestWrite:
             (_LARGE_BLOB_SIZE, _STAGE_BLOCK_SIZE * 3),
         ],
     )
-    def test_write_content_in_chunks(self, blob_size, blob_url, container_client, n):
+    def test_write_content_in_chunks(
+        self, blob_size, blob_url, container_client, credential, n
+    ):
         blob_data = sample_data(blob_size)
         written = 0
-        with BlobIO(blob_url, "wb") as f:
+        with BlobIO(blob_url, "wb", credential=credential) as f:
             for i in range(0, len(blob_data), n):
                 chunk = blob_data[i : i + n]
                 assert f.write(chunk) == len(chunk)
@@ -82,16 +86,16 @@ class TestWrite:
         "blob_size",
         [_SMALL_BLOB_SIZE, _LARGE_BLOB_SIZE],
     )
-    def test_overwrite_blob(self, blob_size, blob_url, container_client):
+    def test_overwrite_blob(self, blob_size, blob_url, container_client, credential):
         blob_data = sample_data(blob_size)
-        with BlobIO(blob_url, "wb") as f:
+        with BlobIO(blob_url, "wb", credential=credential) as f:
             assert f.write(blob_data) == len(blob_data)
             assert f.tell() == len(blob_data)
 
         assert downloaded_blob(container_client, blob_url) == blob_data
 
         blob_data = sample_data(10)
-        with BlobIO(blob_url, "wb") as f:
+        with BlobIO(blob_url, "wb", credential=credential) as f:
             assert f.write(blob_data) == len(blob_data)
             assert f.tell() == len(blob_data)
 

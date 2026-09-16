@@ -4,11 +4,13 @@
 # license information.
 # --------------------------------------------------------------------------
 import io
+from dataclasses import dataclass
+
 import pytest
 
 from azstoragetorch.io import BlobIO
-from dataclasses import dataclass
-from tests.e2e.utils import sample_data, random_resource_name
+
+from tests.e2e.utils import random_resource_name, sample_data
 
 
 _PARTITIONED_DOWNLOAD_THRESHOLD = 16 * 1024 * 1024
@@ -28,7 +30,9 @@ def small_blob(account_url, container_client):
 @pytest.fixture(scope="module")
 def large_blob(account_url, container_client):
     return upload_blob(
-        account_url, container_client, sample_data(_PARTITIONED_DOWNLOAD_THRESHOLD * 2)
+        account_url,
+        container_client,
+        sample_data(_PARTITIONED_DOWNLOAD_THRESHOLD * 2),
     )
 
 
@@ -39,7 +43,11 @@ def empty_blob(account_url, container_client):
 
 @pytest.fixture(scope="module")
 def small_with_newlines_blob(account_url, container_client):
-    return upload_blob(account_url, container_client, sample_data_with_newlines(20, 2))
+    return upload_blob(
+        account_url,
+        container_client,
+        sample_data_with_newlines(20, 2),
+    )
 
 
 @pytest.fixture
@@ -72,29 +80,29 @@ class TestRead:
         ],
         indirect=True,
     )
-    def test_reads_all_data(self, blob):
-        with BlobIO(blob.url, "rb") as f:
+    def test_reads_all_data(self, blob, credential):
+        with BlobIO(blob.url, "rb", credential=credential) as f:
             assert f.read() == blob.data
             assert f.tell() == len(blob.data)
 
     @pytest.mark.parametrize("n", [1, 5, 20, 21])
-    def test_read_n_bytes(self, small_blob, n):
-        with BlobIO(small_blob.url, "rb") as f:
+    def test_read_n_bytes(self, small_blob, n, credential):
+        with BlobIO(small_blob.url, "rb", credential=credential) as f:
             for i in range(0, len(small_blob.data), n):
                 assert f.read(n) == small_blob.data[i : i + n]
                 expected_position = min(i + n, len(small_blob.data))
                 assert f.tell() == expected_position
 
     @pytest.mark.parametrize("n", [1, 5, 20, 21])
-    def test_random_seeks_and_reads(self, small_blob, n):
-        with BlobIO(small_blob.url, "rb") as f:
+    def test_random_seeks_and_reads(self, small_blob, n, credential):
+        with BlobIO(small_blob.url, "rb", credential=credential) as f:
             f.seek(n)
             assert f.read() == small_blob.data[n:]
             expected_position = max(n, len(small_blob.data))
             assert f.tell() == expected_position
 
-    def test_read_using_iter(self, small_with_newlines_blob):
-        with BlobIO(small_with_newlines_blob.url, "rb") as f:
+    def test_read_using_iter(self, small_with_newlines_blob, credential):
+        with BlobIO(small_with_newlines_blob.url, "rb", credential=credential) as f:
             lines = [line for line in f]
             expected_lines = io.BytesIO(small_with_newlines_blob.data).readlines()
             assert lines == expected_lines

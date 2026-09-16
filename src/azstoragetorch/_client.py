@@ -82,6 +82,9 @@ class DownloadKwargsType(TypedDict, total=False):
 # in favor of the SDK's.
 class EchoClientRequestIdPolicy(SansIOHTTPPolicy):
     _CLIENT_REQUEST_ID_HEADER_NAME = "x-ms-client-request-id"
+    _ALLOW_MISSING_CLIENT_REQUEST_ID_ENV_VAR = (
+        "_AZSTORAGETORCH_ALLOW_MISSING_CLIENT_REQUEST_ID"
+    )
 
     def on_request(self, request):
         request.http_request.headers[self._CLIENT_REQUEST_ID_HEADER_NAME] = str(
@@ -92,15 +95,27 @@ class EchoClientRequestIdPolicy(SansIOHTTPPolicy):
         request_client_id = request.http_request.headers[
             self._CLIENT_REQUEST_ID_HEADER_NAME
         ]
-        response_client_id = response.http_response.headers[
+        response_client_id = response.http_response.headers.get(
             self._CLIENT_REQUEST_ID_HEADER_NAME
-        ]
+        )
+        if self._should_allow_missing_client_request_id(response_client_id):
+            return
         if request_client_id != response_client_id:
             raise ClientRequestIdMismatchError(
                 request_client_id=request_client_id,
                 response_client_id=response_client_id,
                 service_request_id=response.http_response.headers["x-ms-request-id"],
             )
+
+    def _should_allow_missing_client_request_id(self, response_client_id):
+        # Azurite omits the client request ID from some error responses:
+        # https://github.com/Azure/Azurite/issues/2265
+        # This environment variable is only intended for tests using Azurite
+        # to get around this limitation.
+        return (
+            response_client_id is None
+            and os.environ.get(self._ALLOW_MISSING_CLIENT_REQUEST_ID_ENV_VAR) == "true"
+        )
 
 
 class AzStorageTorchBlobClientFactory:

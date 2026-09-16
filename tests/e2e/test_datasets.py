@@ -3,11 +3,10 @@
 # Licensed under the MIT License. See LICENSE in the project root for
 # license information.
 # --------------------------------------------------------------------------
+import dataclasses
 from collections.abc import Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor
-import dataclasses
-import urllib.parse
-from typing import Union, Any
+from typing import Any, Union
 
 import pytest
 import torch.utils.data
@@ -40,9 +39,10 @@ def generate_and_upload_data_sample(index, container_client, blob_prefix=""):
     }
 
 
-def parse_blob_name_from_url(blob_url):
-    parsed = urllib.parse.urlparse(blob_url)
-    return parsed.path.split("/", 2)[-1]
+def parse_blob_name_from_url(blob_url, container_url):
+    if not container_url.endswith("/"):
+        container_url += "/"
+    return blob_url.removeprefix(container_url)
 
 
 def sort_samples(samples):
@@ -57,11 +57,11 @@ def blob_properties_only_transform(blob):
     }
 
 
-def get_blob_properties_only_data_samples(data_samples, container_name):
+def get_blob_properties_only_data_samples(data_samples, container_name, container_url):
     return [
         {
             "url": sample["url"],
-            "blob_name": parse_blob_name_from_url(sample["url"]),
+            "blob_name": parse_blob_name_from_url(sample["url"], container_url),
             "container_name": container_name,
         }
         for sample in data_samples
@@ -146,7 +146,7 @@ class DatasetCase:
 
 
 @pytest.fixture(scope="module")
-def create_dataset_case(dataset_container, data_samples):
+def create_dataset_case(dataset_container, data_samples, credential):
     def _create_dataset_case(
         dataset_cls,
         from_url_method_name,
@@ -163,6 +163,7 @@ def create_dataset_case(dataset_container, data_samples):
             expected_data_samples = data_samples
         if dataset_from_url_kwargs is None:
             dataset_from_url_kwargs = {}
+        dataset_from_url_kwargs["credential"] = credential
         return DatasetCase(
             dataset_from_url_method=getattr(dataset_cls, from_url_method_name),
             url=url,
@@ -203,6 +204,7 @@ def transform_from_container_url_case_kwargs(dataset_container, data_samples):
         "expected_data_samples": get_blob_properties_only_data_samples(
             data_samples,
             dataset_container.container_name,
+            dataset_container.url,
         ),
         "dataset_from_url_kwargs": {"transform": blob_properties_only_transform},
     }
@@ -215,6 +217,7 @@ def transform_from_blob_urls_case_kwargs(dataset_container, data_samples):
         "expected_data_samples": get_blob_properties_only_data_samples(
             data_samples,
             dataset_container.container_name,
+            dataset_container.url,
         ),
         "dataset_from_url_kwargs": {"transform": blob_properties_only_transform},
     }
