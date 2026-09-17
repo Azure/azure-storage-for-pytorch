@@ -30,6 +30,7 @@ from azure.core.pipeline import PipelineRequest, PipelineResponse
 from azure.core.pipeline.transport import RequestsTransport
 
 from azstoragetorch._client import (
+    ALLOW_MISSING_CLIENT_REQUEST_ID_ENV_VAR,
     AzStorageTorchBlobClient,
     AzStorageTorchBlobClientFactory,
     EchoClientRequestIdPolicy,
@@ -49,9 +50,6 @@ EXPECTED_RETRYABLE_READ_EXCEPTIONS = [
     azure.core.exceptions.DecodeError,
 ]
 PROCESS_CPU_COUNT_UNAVAILABLE = object()
-_ALLOW_MISSING_CLIENT_REQUEST_ID_ENV_VAR = (
-    "_AZSTORAGETORCH_ALLOW_MISSING_CLIENT_REQUEST_ID"
-)
 SAS_TOKEN = "sp=r&st=2024-10-28T20:22:30Z&se=2024-10-29T04:22:30Z&spr=https&sv=2022-11-02&sr=c&sig=signature"
 SNAPSHOT = "2024-10-28T20:34:36.1724588Z"
 VERSION_ID = SNAPSHOT
@@ -309,7 +307,7 @@ class TestEchoClientRequestIdPolicy:
         env_value,
     ):
         if env_value is not None:
-            monkeypatch.setenv(_ALLOW_MISSING_CLIENT_REQUEST_ID_ENV_VAR, env_value)
+            monkeypatch.setenv(ALLOW_MISSING_CLIENT_REQUEST_ID_ENV_VAR, env_value)
         mock_pipeline_request.http_request.headers["x-ms-client-request-id"] = (
             "unique-id"
         )
@@ -325,7 +323,7 @@ class TestEchoClientRequestIdPolicy:
         mock_pipeline_response,
         monkeypatch,
     ):
-        monkeypatch.setenv(_ALLOW_MISSING_CLIENT_REQUEST_ID_ENV_VAR, "true")
+        monkeypatch.setenv(ALLOW_MISSING_CLIENT_REQUEST_ID_ENV_VAR, "true")
         mock_pipeline_request.http_request.headers["x-ms-client-request-id"] = (
             "unique-id"
         )

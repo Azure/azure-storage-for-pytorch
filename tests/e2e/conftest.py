@@ -15,15 +15,12 @@ from azure.storage.blob import (
     AccountSasPermissions,
     BlobServiceClient,
     ResourceTypes,
-    Services,
     generate_account_sas,
 )
 
+from azstoragetorch._client import ALLOW_MISSING_CLIENT_REQUEST_ID_ENV_VAR
 from tests.e2e.utils import random_resource_name
 
-_ALLOW_MISSING_CLIENT_REQUEST_ID_ENV_VAR = (
-    "_AZSTORAGETORCH_ALLOW_MISSING_CLIENT_REQUEST_ID"
-)
 _AZURITE_ACCOUNT_NAME = "devstoreaccount1"
 _AZURITE_ACCOUNT_KEY = (
     "Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq"
@@ -45,11 +42,11 @@ def pytest_addoption(parser):
 def use_azurite(request):
     enabled = request.config.getoption("--azurite")
     if enabled:
-        os.environ[_ALLOW_MISSING_CLIENT_REQUEST_ID_ENV_VAR] = "true"
+        os.environ[ALLOW_MISSING_CLIENT_REQUEST_ID_ENV_VAR] = "true"
         _wait_for_azurite()
     yield enabled
     if enabled:
-        os.environ.pop(_ALLOW_MISSING_CLIENT_REQUEST_ID_ENV_VAR)
+        os.environ.pop(ALLOW_MISSING_CLIENT_REQUEST_ID_ENV_VAR)
 
 
 @pytest.fixture(scope="session")
@@ -73,20 +70,14 @@ def credential(use_azurite):
         sas_token = generate_account_sas(
             account_name=_AZURITE_ACCOUNT_NAME,
             account_key=_AZURITE_ACCOUNT_KEY,
-            resource_types=ResourceTypes(service=True, container=True, object=True),
+            resource_types=ResourceTypes(container=True, object=True),
             permission=AccountSasPermissions(
                 read=True,
                 write=True,
                 delete=True,
                 list=True,
-                add=True,
-                create=True,
-                update=True,
-                process=True,
             ),
             expiry=datetime.now(timezone.utc) + timedelta(hours=1),
-            services=Services(blob=True),
-            protocol="http",
         )
         return AzureSasCredential(sas_token)
     return None

@@ -44,6 +44,9 @@ from azstoragetorch.exceptions import ClientRequestIdMismatchError
 
 _LOGGER = logging.getLogger(__name__)
 
+ALLOW_MISSING_CLIENT_REQUEST_ID_ENV_VAR = (
+    "_AZSTORAGETORCH_ALLOW_MISSING_CLIENT_REQUEST_ID"
+)
 SDK_CREDENTIAL_TYPE = Optional[
     Union[
         AzureSasCredential,
@@ -82,9 +85,6 @@ class DownloadKwargsType(TypedDict, total=False):
 # in favor of the SDK's.
 class EchoClientRequestIdPolicy(SansIOHTTPPolicy):
     _CLIENT_REQUEST_ID_HEADER_NAME = "x-ms-client-request-id"
-    _ALLOW_MISSING_CLIENT_REQUEST_ID_ENV_VAR = (
-        "_AZSTORAGETORCH_ALLOW_MISSING_CLIENT_REQUEST_ID"
-    )
 
     def on_request(self, request):
         request.http_request.headers[self._CLIENT_REQUEST_ID_HEADER_NAME] = str(
@@ -114,7 +114,7 @@ class EchoClientRequestIdPolicy(SansIOHTTPPolicy):
         # to get around this limitation.
         return (
             response_client_id is None
-            and os.environ.get(self._ALLOW_MISSING_CLIENT_REQUEST_ID_ENV_VAR) == "true"
+            and os.environ.get(ALLOW_MISSING_CLIENT_REQUEST_ID_ENV_VAR) == "true"
         )
 
 
